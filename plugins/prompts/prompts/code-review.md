@@ -91,19 +91,29 @@ new, return an empty sweep — do not pad.
 
 ## Output
 
-Report this review's results as your final message: a `level` (the review effort,
-here extra-high) and a `findings` list ranked most-severe first — include every
-finding that survived verification, nothing more. Each entry has:
+Report this review's results as your final message: a markdown table of every finding
+that survived verification, nothing more, ranked most-severe first. Use these
+columns:
 
-- `file`, `line`
-- `priority` — `p0` (drop everything) / `p1` (fix before merge) / `p2` (fix
+| #   | Priority | Location                  | Category | Summary                                                            | Failure scenario                                                                                          | Verdict   |
+| --- | -------- | ------------------------- | -------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | --------- |
+| 1   | p1       | `src/auth/session.ts:142` | logic    | Expiry check uses `>` so a token expiring exactly now is accepted. | Request arriving in the same millisecond the token expires passes validation and the session is extended. | Confirmed |
+
+- `#` — 1-based rank, matching the severity order
+- `Priority` — `p0` (drop everything) / `p1` (fix before merge) / `p2` (fix
   eventually) / `p3` (nice to have)
-- `summary` — one matter-of-fact sentence; state severity honestly, don't inflate
-- `failure_scenario` — the concrete inputs, state, or environment that trigger it and
-  what goes wrong
-- `category` — short kebab-case slug for the bug class (`logic`, `lost-behavior`,
+- `Location` — `` `file:line` `` in backticks; use the file's path as it appears in
+  the diff
+- `Category` — short kebab-case slug for the bug class (`logic`, `lost-behavior`,
   `broken-contract`, `error-path`, or a more specific slug when one fits better)
-- `verdict` — when a verify pass produced one
+- `Summary` — one matter-of-fact sentence; state severity honestly, don't inflate
+- `Failure scenario` — the concrete inputs, state, or environment that trigger it and
+  what goes wrong
+- `Verdict` — `Confirmed` or `Plausible` from the verify pass; `—` if none
 
-If nothing survives verification, report an empty `findings` list — do not
+One row per finding, and keep each cell to a single line so the table stays readable.
+If a finding needs a code snippet, put it in a short fenced block below the table,
+referencing the row `#`.
+
+If nothing survives verification, skip the table and say so in a sentence — do not
 manufacture findings to have something to say.

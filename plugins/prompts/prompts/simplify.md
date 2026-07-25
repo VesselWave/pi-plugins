@@ -61,15 +61,25 @@ that you judge to be a false positive. Do NOT edit any files.
 
 ## Output
 
-Report the surviving findings as your final message: a `findings` list ranked
-most-impactful first. Each entry has:
+Report the surviving findings as your final message: a markdown table ranked
+most-impactful first, with these columns:
 
-- `file`, `line`
-- `summary` — one matter-of-fact sentence; don't inflate the issue
-- `cost` — what is concretely duplicated, wasted, or harder to maintain
-- `suggestion` — the simpler or cheaper form that does the same job
-- `category` — short kebab-case slug for the angle that produced it (`reuse`,
+| #   | Location               | Category | Summary                                                               | Cost                                                                       | Suggestion                                                             |
+| --- | ---------------------- | -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1   | `src/api/client.ts:88` | reuse    | Re-implements retry-with-backoff that `withRetry()` already provides. | Second copy of the backoff policy to keep in sync with `src/lib/retry.ts`. | Call `withRetry(fn, { attempts: 3 })` instead of the hand-rolled loop. |
+
+- `#` — 1-based rank, matching the impact order
+- `Location` — `` `file:line` `` in backticks; use the file's path as it appears in
+  the diff
+- `Category` — short kebab-case slug for the angle that produced it (`reuse`,
   `simplification`, `efficiency`, or `altitude`)
+- `Summary` — one matter-of-fact sentence; don't inflate the issue
+- `Cost` — what is concretely duplicated, wasted, or harder to maintain
+- `Suggestion` — the simpler or cheaper form that does the same job
 
-If nothing is worth changing, report an empty `findings` list and confirm the code is
-already clean — do not manufacture findings to have something to say.
+One row per finding, and keep each cell to a single line so the table stays readable.
+If a suggestion needs a code snippet, put it in a short fenced block below the table,
+referencing the row `#`.
+
+If nothing is worth changing, skip the table and confirm the code is already clean —
+do not manufacture findings to have something to say.
