@@ -60,13 +60,14 @@ While the active model belongs to a subscription provider (`anthropic` or
 on the shared status line above the editor:
 
 ```text
-5h ██░░░ 42% · wk █░░░░ 17%
+5h ██░░░ 42% (2h) · wk █░░░░ 17% (4d)
 ```
+
+The value in parentheses is the time left until that window resets.
 
 The widget refreshes in the background (at most every 30 seconds) when a session
 starts, a model is selected, or an agent loop finishes, and reuses the data fetched
-by `/usage`. Fetch failures are silent on the status line — run `/usage` to see the
-error.
+by `/usage`.
 
 ## Configuration
 

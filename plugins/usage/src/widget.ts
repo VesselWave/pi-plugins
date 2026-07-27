@@ -1,5 +1,6 @@
 import type { ClaudeUsage, UsageWindow } from './provider/anthropic'
 import type { CodexUsage } from './provider/openai'
+import { codexResetsAt, formatCompactDuration, parseResetsAt } from './reset'
 
 /** One compact rate-limit entry shown on the shared status line. */
 export interface WidgetLimit {
@@ -7,6 +8,8 @@ export interface WidgetLimit {
   readonly label: string
   /** Percentage used, 0-100. */
   readonly percent: number
+  /** When the window rolls over, if the provider reported it. */
+  readonly resetsAt?: Date | null | undefined
 }
 
 const BAR_WIDTH = 5
@@ -17,15 +20,28 @@ function bar(percent: number): string {
   return `${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}`
 }
 
-/** "5h ██░░░ 41% · wk ███░░ 62%", or `undefined` when there is nothing to show. */
+function reset(limit: WidgetLimit, now: Date): string {
+  if (!limit.resetsAt) {
+    return ''
+  }
+  const delta = limit.resetsAt.getTime() - now.getTime()
+  return ` (${delta > 0 ? formatCompactDuration(delta) : 'now'})`
+}
+
+/** "5h ██░░░ 41% (2h) · wk ███░░ 62% (4d)", or `undefined` when there is nothing to show. */
 export function widgetText(
   limits: readonly WidgetLimit[] | undefined,
+  now: Date,
 ): string | undefined {
   if (limits === undefined || limits.length === 0) {
     return undefined
   }
   return limits
-    .map(({ label, percent }) => `${label} ${bar(percent)} ${Math.round(percent)}%`)
+    .map(
+      (limit) =>
+        `${limit.label} ${bar(limit.percent)} ${Math.round(limit.percent)}%` +
+        reset(limit, now),
+    )
     .join(' · ')
 }
 
@@ -50,7 +66,13 @@ export function claudeWidgetLimits(usage: ClaudeUsage): WidgetLimit[] {
     return limits.flatMap((limit) => {
       const label = claudeLimitLabel(limit.kind)
       return label !== undefined && typeof limit.percent === 'number'
-        ? [{ label, percent: limit.percent }]
+        ? [
+            {
+              label,
+              percent: limit.percent,
+              resetsAt: parseResetsAt(limit.resets_at),
+            },
+          ]
         : []
     })
   }
@@ -61,7 +83,13 @@ export function claudeWidgetLimits(usage: ClaudeUsage): WidgetLimit[] {
   ]
   return windows.flatMap(([label, window]) =>
     typeof window?.utilization === 'number'
-      ? [{ label, percent: window.utilization }]
+      ? [
+          {
+            label,
+            percent: window.utilization,
+            resetsAt: parseResetsAt(window.resets_at),
+          },
+        ]
       : [],
   )
 }
@@ -81,7 +109,7 @@ function codexWindowLabel(seconds: number | null | undefined): string {
   return `${Math.round(seconds / 3600)}h`
 }
 
-export function codexWidgetLimits(usage: CodexUsage): WidgetLimit[] {
+export function codexWidgetLimits(usage: CodexUsage, now: Date): WidgetLimit[] {
   const details = usage.rate_limit
   return [details?.primary_window, details?.secondary_window].flatMap((window) =>
     window
@@ -89,6 +117,7 @@ export function codexWidgetLimits(usage: CodexUsage): WidgetLimit[] {
           {
             label: codexWindowLabel(window.limit_window_seconds),
             percent: window.used_percent,
+            resetsAt: codexResetsAt(window, now),
           },
         ]
       : [],

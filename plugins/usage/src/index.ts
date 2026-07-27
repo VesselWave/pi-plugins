@@ -80,7 +80,9 @@ export default function usage(pi: ExtensionAPI): void {
     }
     const provider = config.showWidget ? widgetProvider(ctx.model) : undefined
     const text =
-      provider === undefined ? undefined : widgetText(limitsCache.get(provider))
+      provider === undefined
+        ? undefined
+        : widgetText(limitsCache.get(provider), new Date())
     setStatuslineSegment(
       ctx,
       SEGMENT_KEY,
@@ -109,7 +111,7 @@ export default function usage(pi: ExtensionAPI): void {
       const service = yield* UsageService
       return provider === 'claude'
         ? claudeWidgetLimits(yield* service.claude())
-        : codexWidgetLimits(yield* service.codex())
+        : codexWidgetLimits(yield* service.codex(), new Date())
     }).pipe(Effect.provide(UsageService.layer(ctx.modelRegistry)))
 
     const exit = await Effect.runPromiseExit(program)
@@ -171,7 +173,7 @@ export default function usage(pi: ExtensionAPI): void {
                 .pipe(
                   Effect.tap((data) =>
                     Effect.sync(() =>
-                      recordLimits('codex', codexWidgetLimits(data)),
+                      recordLimits('codex', codexWidgetLimits(data, now)),
                     ),
                   ),
                 ),

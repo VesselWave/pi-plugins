@@ -1,5 +1,6 @@
 import type { ClaudeUsage, UnifiedLimit, UsageWindow } from './provider/anthropic'
 import type { CodexUsage, RateLimitDetails } from './provider/openai'
+import { codexResetsAt, formatDuration, parseResetsAt } from './reset'
 
 const MIN_LABEL_WIDTH = 22
 const BAR_WIDTH = 10
@@ -22,20 +23,6 @@ function bar(percent: number): string {
   const clamped = Math.min(Math.max(percent, 0), 100)
   const filled = Math.round((clamped / 100) * BAR_WIDTH)
   return `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}]`
-}
-
-/** "42m", "2h 13m", "4d 2h" */
-export function formatDuration(ms: number): string {
-  const minutes = Math.max(Math.ceil(ms / 60_000), 0)
-  if (minutes < 60) {
-    return `${minutes}m`
-  }
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) {
-    return `${hours}h ${minutes % 60}m`
-  }
-  const days = Math.floor(hours / 24)
-  return `${days}d ${hours % 24}h`
 }
 
 function formatRow(row: UsageRow, now: Date, labelWidth: number): string {
@@ -96,17 +83,6 @@ export function renderSections(
 }
 
 // ─── Claude ──────────────────────────────────────────────────────────────────
-
-function parseResetsAt(value: string | number | null | undefined): Date | null {
-  if (typeof value === 'number') {
-    return new Date(value * 1000)
-  }
-  if (typeof value === 'string') {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : date
-  }
-  return null
-}
 
 function windowRow(
   label: string,
@@ -237,19 +213,6 @@ function codexWindowName(seconds: number | null | undefined): string {
     return `${Math.round(seconds / 86_400)}d`
   }
   return `${Math.round(seconds / 3600)}h`
-}
-
-function codexResetsAt(
-  window: { reset_after_seconds?: number | null; reset_at?: number | null },
-  now: Date,
-): Date | null {
-  if (typeof window.reset_after_seconds === 'number') {
-    return new Date(now.getTime() + window.reset_after_seconds * 1000)
-  }
-  if (typeof window.reset_at === 'number') {
-    return new Date(window.reset_at * 1000)
-  }
-  return null
 }
 
 function codexWindowRows(
