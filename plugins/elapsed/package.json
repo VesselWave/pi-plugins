@@ -1,0 +1,66 @@
+{
+  "name": "@pi-plugins/elapsed",
+  "version": "0.1.0",
+  "description": "Working timer extension for pi-agent: shows how long the agent has been working.",
+  "keywords": [
+    "duration",
+    "elapsed",
+    "pi",
+    "pi-agent",
+    "pi-extension",
+    "pi-package",
+    "timer",
+    "working-indicator"
+  ],
+  "homepage": "https://github.com/k3dom/pi-plugins/tree/main/plugins/elapsed#readme",
+  "bugs": {
+    "url": "https://github.com/k3dom/pi-plugins/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k3dom/pi-plugins.git",
+    "directory": "plugins/elapsed"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "pnpm run build",
+    "build": "tsdown",
+    "check": "pnpm run lint && pnpm run check-types && pnpm run format:check",
+    "check-types": "tsc -b",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@pi-plugins/fmt": "workspace:*",
+    "@pi-plugins/lint": "workspace:*",
+    "@pi-plugins/tsconfig": "workspace:*",
+    "@types/node": "26.1.1",
+    "oxfmt": "0.59.0",
+    "oxlint": "1.74.0",
+    "tsdown": "0.22.13",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.mjs"
+    ]
+  }
+}
