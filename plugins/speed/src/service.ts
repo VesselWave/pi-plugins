@@ -1,4 +1,4 @@
-import { Array, Context, Effect, Number, Order, pipe, Record } from 'effect'
+import { Array, Context, Effect, Order } from 'effect'
 
 const MAX_SAMPLES = 1000
 
@@ -11,7 +11,7 @@ const HALF_LIFE_TOKENS = 4000
 
 const MIN_WEIGHT = 1e-3
 
-export interface Sample {
+interface Sample {
   readonly model: string
   readonly ttftMs: number
   readonly generationMs: number
@@ -26,30 +26,8 @@ export interface RecentSpeed {
   readonly provisional: boolean
 }
 
-export interface ModelStats {
-  readonly model: string
-  readonly requests: number
-  readonly tps: number
-  readonly totalTokens: number
-  readonly ttft: TailSummary
-  readonly requestTps: TailSummary
-}
-
-export interface TailSummary {
-  readonly p50: number | undefined
-  readonly p95: number | undefined
-  readonly worst: number
-}
-
 export interface FirstToken {
   readonly ttftMs: number
-}
-
-export interface SessionReport {
-  readonly requestCount: number
-  readonly recent: RecentSpeed | undefined
-  readonly last: Sample | undefined
-  readonly stats: readonly ModelStats[]
 }
 
 export interface RequestOutcome {
@@ -63,44 +41,13 @@ interface InflightRequest {
   firstTokenAt?: number
 }
 
-/**
- * A quantile is reported only when at least this many samples lie strictly
- * beyond its rank, so it is genuinely interior rather than a relabeled
- * (near-)max. Yields gates of n ≥ 4 for p50 and n ≥ 40 for p95.
- */
-const MIN_SAMPLES_BEYOND = 2
-
-/** Nearest-rank quantile of a sorted array (worse tail last); `NaN` when empty. */
-export function quantile(sorted: readonly number[], q: number): number {
+/** Nearest-rank quantile of a sorted array; `NaN` when empty. */
+function quantile(sorted: readonly number[], q: number): number {
   const index = Math.min(
     Math.max(Math.ceil(q * sorted.length) - 1, 0),
     sorted.length - 1,
   )
-  return sorted[index] ?? globalThis.Number.NaN
-}
-
-export function tailSummary(
-  values: readonly number[],
-  worse: 'high' | 'low',
-): TailSummary {
-  // Worse tail last, so nearest-rank treats latency and throughput symmetrically.
-  const sorted = Array.sort(
-    values,
-    worse === 'high' ? Order.Number : Order.flip(Order.Number),
-  )
-  const gated = (q: number) =>
-    sorted.length - Math.ceil(q * sorted.length) >= MIN_SAMPLES_BEYOND
-      ? quantile(sorted, q)
-      : undefined
-  return {
-    p50: gated(0.5),
-    p95: gated(0.95),
-    worst: quantile(sorted, 1),
-  }
-}
-
-export function tokensPerSecond(sample: Sample): number {
-  return sample.outputTokens / (sample.generationMs / 1000)
+  return sorted[index] ?? Number.NaN
 }
 
 /**
@@ -217,47 +164,12 @@ export class SpeedTracker extends Context.Service<SpeedTracker>()(
         inflight = undefined
       }
 
-      function report(): SessionReport {
-        return {
-          requestCount: samples.length,
-          recent: recentSpeed(samples),
-          last: samples.at(-1),
-          // Grouped by model, most-used model first.
-          stats: pipe(
-            Record.toEntries(Array.groupBy(samples, (sample) => sample.model)),
-            Array.map(([model, group]): ModelStats => {
-              const totalTokens = Number.sumAll(
-                group.map((sample) => sample.outputTokens),
-              )
-              return {
-                model,
-                requests: group.length,
-                tps:
-                  totalTokens /
-                  (Number.sumAll(group.map((sample) => sample.generationMs)) / 1000),
-                totalTokens,
-                ttft: tailSummary(
-                  group.map((sample) => sample.ttftMs),
-                  'high',
-                ),
-                requestTps: tailSummary(group.map(tokensPerSecond), 'low'),
-              }
-            }),
-            Array.sortWith(
-              (stats: ModelStats) => stats.requests,
-              Order.flip(Order.Number),
-            ),
-          ),
-        }
-      }
-
       return {
         beginRequest,
         recordDelta,
         endRequest,
         recent,
         reset,
-        report,
       } as const
     }),
   },

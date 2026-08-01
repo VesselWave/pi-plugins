@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { setStatuslineSegment } from '@pi-plugins/shared'
 import { Effect } from 'effect'
-import { recentText, renderReport, streamingText } from './render'
+import { recentText, streamingText } from './render'
 import { SpeedTracker } from './service'
 
 const SEGMENT_KEY = 'speed'
@@ -50,13 +50,5 @@ export default function speed(pi: ExtensionAPI) {
     })
     const recent = tracker.recent()
     showWidget(ctx, recent === undefined ? undefined : recentText(recent))
-  })
-
-  pi.registerCommand('speed', {
-    description:
-      'Show inference speed for this session (tokens/sec and time to first token)',
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(renderReport(tracker.report()), 'info')
-    },
   })
 }
