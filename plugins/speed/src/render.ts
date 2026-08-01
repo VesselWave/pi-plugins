@@ -1,8 +1,11 @@
 import type { FirstToken, RecentSpeed } from './service'
 
-/** Whole tokens: the standard error runs to a few percent, so a decimal is noise. */
+/**
+ * Two significant figures. The standard error runs to a few percent, so past a
+ * hundred tokens the last digit is below the noise and only reads as precision.
+ */
 function formatTps(tps: number): string {
-  return `${Math.round(tps)} tok/s`
+  return `${tps < 100 ? Math.round(tps) : Math.round(tps / 10) * 10} tok/s`
 }
 
 /** "830ms", "1.24s", "27.3s", "94s" */

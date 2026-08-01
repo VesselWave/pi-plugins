@@ -11,12 +11,38 @@ const HALF_LIFE_TOKENS = 4000
 
 const MIN_WEIGHT = 1e-3
 
-/** Below this the error estimate is itself too noisy to act on. */
-const MIN_EFFECTIVE_SAMPLES = 10
+/**
+ * Ceiling on how old a sample may be. Token-space decay ages a model only while
+ * that same model is generating, so a window left behind by a model switch — or
+ * by an idle session — would otherwise still read as current hours later.
+ */
+const MAX_SAMPLE_AGE_MS = 30 * 60 * 1000
+
+/**
+ * Effective sample size below which the error estimate is itself too noisy to act
+ * on. Measured by leverage, not by request count: for a ratio, a window of twenty
+ * tool-call steps beside one long answer is worth barely more than one
+ * observation, and counting requests would call it twenty.
+ */
+const MIN_EFFECTIVE_SAMPLES = 5
 
 /** Hysteresis: one threshold flickered as heavy requests left the window. */
 const SETTLED_RELATIVE_ERROR = 0.05
 const UNSETTLED_RELATIVE_ERROR = 0.15
+
+/** Bartlett lags for the serial-correlation term. Past two the weights are noise. */
+const HAC_LAGS = 2
+
+/** A sample carrying the whole window leaves no residual to correct against. */
+const MAX_LEVERAGE = 0.99
+
+/**
+ * Share of the billed reasoning the streamed thinking must account for before it
+ * counts as having streamed whole. Characters per token swings by a fifth or so
+ * between prose, code and JSON, and comparing the two sides of one request
+ * compounds that; anything under this gap is a summary, not measurement noise.
+ */
+const REASONING_STREAMED = 0.6
 
 /**
  * Below this the chunks were flushed from a buffer, not generated. A floor in ms
@@ -24,14 +50,17 @@ const UNSETTLED_RELATIVE_ERROR = 0.15
  */
 const MIN_OBSERVED_MS = 2
 
+export type DeltaKind = 'thinking' | 'visible'
+
 interface Sample {
   readonly model: string
+  /** Monotonic, for the staleness horizon only; a wall clock can step backwards. */
+  readonly recordedAt: number
   readonly ttftMs: number
   /** First delta to last delta; provider teardown falls outside. */
   readonly generationMs: number
-  readonly outputTokens: number
-  /** Share of `outputTokens` that arrived within `generationMs`. */
-  readonly streamedTokens: number
+  /** Billed tokens shown to have crossed the wire within `generationMs`. */
+  readonly tokens: number
 }
 
 export interface RecentSpeed {
@@ -50,13 +79,17 @@ export interface RequestOutcome {
   readonly model: string
   readonly stopReason: string
   readonly outputTokens: number
+  /** A subset of `outputTokens`; undefined where the provider reports no split. */
+  readonly reasoningTokens: number | undefined
 }
 
 interface InflightRequest {
   readonly requestStart: number
   firstTokenAt?: number
   lastDeltaAt?: number
-  deltas: number
+  firstDeltaChars: number
+  visibleChars: number
+  thinkingChars: number
 }
 
 interface WeightedValue {
@@ -82,6 +115,50 @@ function weightedMedian(entries: readonly WeightedValue[]): number {
 }
 
 /**
+ * The billed tokens this stream can account for, narrowed to the ones that arrived
+ * inside the measured interval.
+ *
+ * Reasoning is billed under `output` whether or not the provider streams it. Where
+ * it is withheld, or cut down to a summary, the time that produced it lands before
+ * the first delta, so counting those tokens here credits the model with work no
+ * measured interval covers — enough to read half again to twice too fast. Only the
+ * thinking that actually streamed belongs in the numerator, and characters per
+ * token, taken from the visible content of this same request, is what converts it
+ * back into tokens.
+ */
+function streamedTokens(
+  request: InflightRequest,
+  outcome: RequestOutcome,
+): number | undefined {
+  const chars = request.visibleChars + request.thinkingChars
+  const withinInterval = chars - request.firstDeltaChars
+  if (withinInterval <= 0) {
+    return undefined
+  }
+
+  const reasoning = Math.min(outcome.reasoningTokens ?? 0, outcome.outputTokens)
+  const visible = outcome.outputTokens - reasoning
+  const density = visible > 0 ? request.visibleChars / visible : 0
+  // Clamping to the implied count on every request would charge the density noise
+  // to models that stream their thinking in full, which is measurable, and add
+  // spread the estimate has no reason to carry.
+  const implied = density > 0 ? request.thinkingChars / density : 0
+  const streamedReasoning =
+    density <= 0
+      ? request.thinkingChars > 0
+        ? reasoning
+        : 0
+      : implied >= reasoning * REASONING_STREAMED
+        ? reasoning
+        : implied
+
+  // The first delta predates the interval, so its share is dropped. Prorated by
+  // characters rather than by chunk count, which assumed every chunk was equal
+  // when the opening one is routinely a fragment.
+  return ((visible + streamedReasoning) * withinInterval) / chars
+}
+
+/**
  * Tokens and milliseconds are summed separately and divided once, so a request
  * counts in proportion to the evidence it carries. Averaging per-request rates
  * instead would give a 30-token tool-call step — mostly fixed per-request
@@ -99,6 +176,7 @@ function recentSpeed(
   // Only the model that answered last: blending two models' rate curves would
   // describe neither.
   const model = latest.model
+  const horizon = latest.recordedAt - MAX_SAMPLE_AGE_MS
   const window: { readonly weight: number; readonly sample: Sample }[] = []
   let tokens = 0
   let millis = 0
@@ -109,36 +187,52 @@ function recentSpeed(
     if (sample.model !== model) {
       continue
     }
+    if (sample.recordedAt < horizon) {
+      break
+    }
     const weight = 0.5 ** (distance / HALF_LIFE_TOKENS)
     if (weight < MIN_WEIGHT) {
       break
     }
     window.push({ weight, sample })
-    tokens += weight * sample.streamedTokens
+    tokens += weight * sample.tokens
     millis += weight * sample.generationMs
-    distance += sample.outputTokens
+    distance += sample.tokens
   }
 
   // `latest` always matches and every sample clears MIN_OBSERVED_MS, so millis > 0.
   const rate = tokens / millis
 
-  // Taylor-linearized standard error of the ratio estimator, relative to the rate.
-  let residuals = 0
-  let weights = 0
-  let weightsSquared = 0
+  // Taylor-linearized variance of the ratio estimator. Each squared residual is
+  // divided by its own leverage: a request holding half the window's time is half
+  // of what it is being compared against, and left uncorrected it fits itself and
+  // reports a precision the window does not have.
+  let independent = 0
+  let leverageSquares = 0
+  const scores: number[] = []
   for (const { weight, sample } of window) {
-    const residual = sample.streamedTokens - rate * sample.generationMs
-    residuals += weight * weight * residual * residual
-    weights += weight
-    weightsSquared += weight * weight
+    const leverage = (weight * sample.generationMs) / millis
+    const score = weight * (sample.tokens - rate * sample.generationMs)
+    independent += (score * score) / (1 - Math.min(leverage, MAX_LEVERAGE)) ** 2
+    leverageSquares += leverage * leverage
+    scores.push(score)
   }
-  const effectiveSamples = (weights * weights) / weightsSquared
-  // ESS stands in for n in the usual n/(n-1) correction. At one sample the
-  // residual is zero by construction, which would read as perfect precision.
-  const relativeError =
-    effectiveSamples > 1
-      ? Math.sqrt((effectiveSamples / (effectiveSamples - 1)) * residuals) / tokens
-      : Number.POSITIVE_INFINITY
+
+  // Requests in one turn share a provider node, a queue position and a context
+  // length, so their residuals move together and the independent sum reads far
+  // too small. Bartlett-weighted lags add that covariance back; the kernel can
+  // come out negative under alternation, hence the floor.
+  let variance = independent
+  for (let lag = 1; lag <= HAC_LAGS; lag++) {
+    let covariance = 0
+    for (let index = 0; index + lag < scores.length; index++) {
+      covariance += scores[index]! * scores[index + lag]!
+    }
+    variance += 2 * (1 - lag / (HAC_LAGS + 1)) * covariance
+  }
+
+  const relativeError = Math.sqrt(Math.max(variance, independent)) / tokens
+  const effectiveSamples = 1 / leverageSquares
 
   return {
     model,
@@ -147,10 +241,13 @@ function recentSpeed(
     ttftMs: weightedMedian(
       window.map((entry) => ({ value: entry.sample.ttftMs, weight: entry.weight })),
     ),
-    provisional: !(settled
-      ? relativeError <= UNSETTLED_RELATIVE_ERROR
-      : relativeError <= SETTLED_RELATIVE_ERROR &&
-        effectiveSamples >= MIN_EFFECTIVE_SAMPLES),
+    // The sample floor gates unconditionally rather than on the way in only: a
+    // window rebuilt from one request fits it exactly, leaving a zero residual
+    // that reads as perfect precision and would hold the latch open on nothing.
+    provisional: !(
+      effectiveSamples >= MIN_EFFECTIVE_SAMPLES &&
+      relativeError <= (settled ? UNSETTLED_RELATIVE_ERROR : SETTLED_RELATIVE_ERROR)
+    ),
   }
 }
 
@@ -175,27 +272,38 @@ export class SpeedTracker extends Context.Service<SpeedTracker>()(
         if (inflight?.firstTokenAt !== undefined) {
           return
         }
-        inflight = { requestStart: performance.now(), deltas: 0 }
+        inflight = {
+          requestStart: performance.now(),
+          firstDeltaChars: 0,
+          visibleChars: 0,
+          thinkingChars: 0,
+        }
       }
 
       /**
        * Returns the measured TTFT exactly once, on the first delta. Tokens/sec is
        * never estimated mid-stream: real token counts arrive only at message end.
        */
-      function recordDelta(): FirstToken | undefined {
+      function recordDelta(kind: DeltaKind, length: number): FirstToken | undefined {
         const request = inflight
         if (request === undefined) {
           return undefined
         }
 
         const now = performance.now()
-        request.deltas++
+        if (kind === 'thinking') {
+          request.thinkingChars += length
+        } else {
+          request.visibleChars += length
+        }
+
         if (request.firstTokenAt !== undefined) {
           request.lastDeltaAt = now
           return undefined
         }
 
         request.firstTokenAt = now
+        request.firstDeltaChars = length
         return { ttftMs: now - request.requestStart }
       }
 
@@ -220,15 +328,17 @@ export class SpeedTracker extends Context.Service<SpeedTracker>()(
           return
         }
 
+        const tokens = streamedTokens(request, outcome)
+        if (tokens === undefined || tokens <= 0) {
+          return
+        }
+
         samples.push({
           model: outcome.model,
+          recordedAt: request.lastDeltaAt,
           ttftMs: request.firstTokenAt - request.requestStart,
           generationMs,
-          outputTokens: outcome.outputTokens,
-          // The first delta's tokens predate the interval and its share is
-          // unknown, so assume tokens were spread evenly across the deltas.
-          streamedTokens:
-            (outcome.outputTokens * (request.deltas - 1)) / request.deltas,
+          tokens,
         })
         if (samples.length >= MAX_SAMPLES * 2) {
           // Amortized trim: let the buffer grow to twice the window, then cut

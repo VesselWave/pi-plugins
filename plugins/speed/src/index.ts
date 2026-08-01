@@ -32,7 +32,10 @@ export default function speed(pi: ExtensionAPI) {
     if (!('delta' in streamEvent)) {
       return
     }
-    const firstToken = tracker.recordDelta()
+    const firstToken = tracker.recordDelta(
+      streamEvent.type === 'thinking_delta' ? 'thinking' : 'visible',
+      streamEvent.delta.length,
+    )
     if (firstToken !== undefined) {
       showWidget(ctx, streamingText(tracker.recent(), firstToken))
     }
@@ -47,6 +50,7 @@ export default function speed(pi: ExtensionAPI) {
       model: `${message.provider}/${message.model}`,
       stopReason: message.stopReason,
       outputTokens: message.usage.output,
+      reasoningTokens: message.usage.reasoning,
     })
     const recent = tracker.recent()
     showWidget(ctx, recent === undefined ? undefined : recentText(recent))
