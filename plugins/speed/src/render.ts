@@ -2,7 +2,7 @@ import { Array } from 'effect'
 import {
   tokensPerSecond,
   type FirstToken,
-  type Sample,
+  type RecentSpeed,
   type SessionReport,
   type TailSummary,
 } from './service'
@@ -40,17 +40,26 @@ function formatTokens(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M`
 }
 
-/** Widget line for a completed measurement. */
-export function sampleText(sample: Sample): string {
-  return `${formatTps(tokensPerSecond(sample))} · TTFT ${formatMs(sample.ttftMs)}`
+/** `~` marks an estimate that has not yet seen a half-life of evidence. */
+function recentTps(recent: RecentSpeed): string {
+  return `${recent.provisional ? '~' : ''}${formatTps(recent.tps)}`
+}
+
+export function recentText(recent: RecentSpeed): string {
+  return `${recentTps(recent)} · TTFT ${formatMs(recent.ttftMs)}`
 }
 
 /**
- * Widget line while streaming: only the measured TTFT. Tokens/sec is shown
- * once the request completes and the provider reports real token counts.
+ * Throughput stays on screen mid-stream because it describes the model, not the
+ * in-flight request. It is never estimated from the running stream — it moves
+ * only once a request completes and the provider reports real token counts.
  */
-export function firstTokenText(firstToken: FirstToken): string {
-  return `TTFT ${formatMs(firstToken.ttftMs)}`
+export function streamingText(
+  recent: RecentSpeed | undefined,
+  firstToken: FirstToken,
+): string {
+  const ttft = `TTFT ${formatMs(firstToken.ttftMs)}`
+  return recent === undefined ? ttft : `${recentTps(recent)} · ${ttft}`
 }
 
 const TAIL_LABEL_WIDTH = 'tok/s'.length
@@ -75,8 +84,8 @@ function tailLine(
 
 /** Multi-line session report: last request plus per-model aggregates. */
 export function renderReport(report: SessionReport): string {
-  const { last, requestCount, stats } = report
-  if (last === undefined) {
+  const { last, recent, requestCount, stats } = report
+  if (last === undefined || recent === undefined) {
     return 'No completed requests measured yet in this session.'
   }
 
@@ -85,10 +94,13 @@ export function renderReport(report: SessionReport): string {
   return [
     `Inference speed — this session (${requestCount} request${requestCount === 1 ? '' : 's'})`,
     '',
-    `Last request  ${last.model}`,
-    `  ${sampleText(last)} · ${formatTokens(last.outputTokens)} tok in ${formatMs(
-      last.generationMs,
-    )}`,
+    `Recent  ${recent.model}  (status line)`,
+    `  ${recentText(recent)}`,
+    '',
+    'Last request',
+    `  ${formatTps(tokensPerSecond(last))} · TTFT ${formatMs(last.ttftMs)} · ${formatTokens(
+      last.outputTokens,
+    )} tok in ${formatMs(last.generationMs)}`,
     '',
     'Per model',
     ...stats.flatMap((entry) => [

@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { setStatuslineSegment } from '@pi-plugins/shared'
 import { Effect } from 'effect'
-import { firstTokenText, renderReport, sampleText } from './render'
+import { recentText, renderReport, streamingText } from './render'
 import { SpeedTracker } from './service'
 
 const SEGMENT_KEY = 'speed'
@@ -17,10 +17,11 @@ export default function speed(pi: ExtensionAPI) {
     )
   }
 
-  function showLastSample(ctx: ExtensionContext): void {
-    const last = tracker.lastSample()
-    showWidget(ctx, last === undefined ? undefined : sampleText(last))
-  }
+  // Fires for every reason, including startup, where there is nothing to drop.
+  pi.on('session_start', (_event, ctx) => {
+    tracker.reset()
+    showWidget(ctx, undefined)
+  })
 
   pi.on('before_provider_request', () => {
     tracker.beginRequest()
@@ -33,7 +34,7 @@ export default function speed(pi: ExtensionAPI) {
     }
     const firstToken = tracker.recordDelta()
     if (firstToken !== undefined) {
-      showWidget(ctx, firstTokenText(firstToken))
+      showWidget(ctx, streamingText(tracker.recent(), firstToken))
     }
   })
 
@@ -47,7 +48,8 @@ export default function speed(pi: ExtensionAPI) {
       stopReason: message.stopReason,
       outputTokens: message.usage.output,
     })
-    showLastSample(ctx)
+    const recent = tracker.recent()
+    showWidget(ctx, recent === undefined ? undefined : recentText(recent))
   })
 
   pi.registerCommand('speed', {

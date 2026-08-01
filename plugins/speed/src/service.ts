@@ -2,11 +2,28 @@ import { Array, Context, Effect, Number, Order, pipe, Record } from 'effect'
 
 const MAX_SAMPLES = 1000
 
+/**
+ * Decay half-life of the live throughput estimate. In generated tokens rather
+ * than requests, where a burst of tiny tool-call steps would flush a well-measured
+ * estimate, or wall-clock, where the number would drift while the session idles.
+ */
+const HALF_LIFE_TOKENS = 4000
+
+const MIN_WEIGHT = 1e-3
+
 export interface Sample {
   readonly model: string
   readonly ttftMs: number
   readonly generationMs: number
   readonly outputTokens: number
+}
+
+export interface RecentSpeed {
+  readonly model: string
+  readonly tps: number
+  readonly ttftMs: number
+  /** Fewer than one half-life of evidence so far; the figure is still settling. */
+  readonly provisional: boolean
 }
 
 export interface ModelStats {
@@ -30,6 +47,7 @@ export interface FirstToken {
 
 export interface SessionReport {
   readonly requestCount: number
+  readonly recent: RecentSpeed | undefined
   readonly last: Sample | undefined
   readonly stats: readonly ModelStats[]
 }
@@ -83,6 +101,51 @@ export function tailSummary(
 
 export function tokensPerSecond(sample: Sample): number {
   return sample.outputTokens / (sample.generationMs / 1000)
+}
+
+/**
+ * Tokens and milliseconds are summed separately and divided once, so a request
+ * counts in proportion to the evidence it carries. Averaging per-request rates
+ * instead would give a 30-token tool-call step — mostly fixed per-request
+ * overhead — the same say as a 1500-token answer.
+ */
+function recentSpeed(samples: readonly Sample[]): RecentSpeed | undefined {
+  const latest = samples.at(-1)
+  if (latest === undefined) {
+    return undefined
+  }
+
+  // Only the model that answered last: blending two models' rate curves would
+  // describe neither.
+  const model = latest.model
+  const ttfts: number[] = []
+  let tokens = 0
+  let millis = 0
+  let distance = 0
+
+  for (let index = samples.length - 1; index >= 0; index--) {
+    const sample = samples[index]!
+    if (sample.model !== model) {
+      continue
+    }
+    const weight = 0.5 ** (distance / HALF_LIFE_TOKENS)
+    if (weight < MIN_WEIGHT) {
+      break
+    }
+    tokens += weight * sample.outputTokens
+    millis += weight * sample.generationMs
+    distance += sample.outputTokens
+    ttfts.push(sample.ttftMs)
+  }
+
+  return {
+    model,
+    // `latest` always matches and `generationMs` has a 1ms floor, so millis > 0.
+    tps: (tokens / millis) * 1000,
+    // Median, not latest: a retried request charges its whole backoff to TTFT.
+    ttftMs: quantile(Array.sort(ttfts, Order.Number), 0.5),
+    provisional: tokens < HALF_LIFE_TOKENS,
+  }
 }
 
 /**
@@ -145,13 +208,19 @@ export class SpeedTracker extends Context.Service<SpeedTracker>()(
         }
       }
 
-      function lastSample(): Sample | undefined {
-        return samples.at(-1)
+      function recent(): RecentSpeed | undefined {
+        return recentSpeed(samples)
+      }
+
+      function reset(): void {
+        samples.length = 0
+        inflight = undefined
       }
 
       function report(): SessionReport {
         return {
           requestCount: samples.length,
+          recent: recentSpeed(samples),
           last: samples.at(-1),
           // Grouped by model, most-used model first.
           stats: pipe(
@@ -182,7 +251,14 @@ export class SpeedTracker extends Context.Service<SpeedTracker>()(
         }
       }
 
-      return { beginRequest, recordDelta, endRequest, lastSample, report } as const
+      return {
+        beginRequest,
+        recordDelta,
+        endRequest,
+        recent,
+        reset,
+        report,
+      } as const
     }),
   },
 ) {}
