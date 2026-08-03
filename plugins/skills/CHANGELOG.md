@@ -1,4 +1,6 @@
-# @pi-plugins/prompts
+# @pi-plugins/skills
+
+> Released as `@pi-plugins/prompts` up to 0.2.1.
 
 ## 0.2.1
 

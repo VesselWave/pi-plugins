@@ -1,8 +1,10 @@
 ---
+name: simplify
 description:
   Review the changed code for reuse, simplification, efficiency, and altitude
-  improvements, and report them (read-only — makes no edits)
-argument-hint: '[PR | branch | path]'
+  improvements, and report them (read-only — makes no edits). Takes an optional
+  target — a PR number, branch name, or path.
+disable-model-invocation: true
 ---
 
 You are reviewing the quality of the changed code, not hunting for bugs — review it
@@ -15,9 +17,9 @@ human to act on.
 Run `git diff @{upstream}...HEAD` (or `git diff main...HEAD` / `git diff HEAD~1` if
 there's no upstream) to get the unified diff under review. If there are uncommitted
 changes, or the range diff is empty, also run `git diff HEAD` and include the
-working-tree changes in scope. If a PR number, branch name, or file path was passed
-as an argument, review that target instead — the argument passed to this command
-(empty if none) is: $ARGUMENTS.
+working-tree changes in scope. If an argument — a PR number, branch name, or file
+path — was passed to this skill, it appears immediately after these instructions;
+review that target instead.
 
 ## Phase 1 — Review (4 cleanup agents in parallel)
 

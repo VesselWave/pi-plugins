@@ -1,6 +1,9 @@
 ---
-description: Correctness review of a diff, ranked by severity
-argument-hint: '[PR | branch | path]'
+name: code-review
+description:
+  Correctness review of a diff, ranked by severity. Takes an optional target — a PR
+  number, branch name, or path.
+disable-model-invocation: true
 ---
 
 You are doing a correctness review of a diff: your job is to catch every real bug
@@ -19,9 +22,9 @@ verifying them. A reportable finding must be:
 Run `git diff @{upstream}...HEAD` (or `git diff main...HEAD` / `git diff HEAD~1` if
 there's no upstream) to get the unified diff under review. If there are uncommitted
 changes, or the range diff is empty, also run `git diff HEAD` and include the
-working-tree changes in scope. If a PR number, branch name, or file path was passed
-as an argument, review that target instead — the argument passed to this command
-(empty if none) is: $ARGUMENTS.
+working-tree changes in scope. If an argument — a PR number, branch name, or file
+path — was passed to this skill, it appears immediately after these instructions;
+review that target instead.
 
 ## Phase 1 — Find candidates
 
@@ -67,8 +70,8 @@ diverge.
 Dedup candidates that point at the same line/mechanism, keeping the one with the most
 concrete failure scenario. For each remaining candidate, run **one verifier** via the
 `subagent` tool: give it the diff, the relevant file(s), the candidate, and the
-reportable-finding bar from the top of this prompt, and have it return exactly one
-of:
+reportable-finding bar from the top of these instructions, and have it return exactly
+one of:
 
 - **Confirmed** — meets the bar and can name the inputs/state that trigger it and the
   wrong output or crash. Quote the line.

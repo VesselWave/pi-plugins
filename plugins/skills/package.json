@@ -1,19 +1,17 @@
 {
-  "name": "@pi-plugins/prompts",
+  "name": "@pi-plugins/skills",
   "version": "0.2.1",
-  "description": "Prompt templates for pi-agent: /simplify and /code-review.",
+  "description": "A collection of skills for pi-agent.",
   "keywords": [
-    "code-review",
+    "agent-skills",
     "pi",
     "pi-agent",
     "pi-package",
-    "pi-prompt",
-    "prompt-template",
-    "prompts",
-    "refactor",
-    "simplify"
+    "pi-skill",
+    "skill",
+    "skills"
   ],
-  "homepage": "https://github.com/k3dom/pi-plugins/tree/main/plugins/prompts#readme",
+  "homepage": "https://github.com/k3dom/pi-plugins/tree/main/plugins/skills#readme",
   "bugs": {
     "url": "https://github.com/k3dom/pi-plugins/issues"
   },
@@ -21,10 +19,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/k3dom/pi-plugins.git",
-    "directory": "plugins/prompts"
+    "directory": "plugins/skills"
   },
   "files": [
-    "prompts",
+    "skills",
     "README.md"
   ],
   "type": "module",
@@ -32,8 +30,8 @@
     "access": "public"
   },
   "pi": {
-    "prompts": [
-      "./prompts"
+    "skills": [
+      "./skills"
     ]
   }
 }

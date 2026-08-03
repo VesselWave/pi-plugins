@@ -10,18 +10,18 @@ concurrency.
 
 ## Packages
 
-| Package                                | Description                                                                                              | Tools / commands            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------- |
-| [`webfetch`](plugins/webfetch)         | Fetches content over HTTP(S) and returns them as Markdown or raw HTML.                                   | `web_fetch`                 |
-| [`subagent`](plugins/subagent)         | Delegates a task to a fresh, headless pi instance with an isolated context window.                       | `subagent`                  |
-| [`checkpoint`](plugins/checkpoint)     | Keeps `/tree` conversation navigation and files on disk in sync with lightweight file checkpoints.       | `/checkpoint-cleanup`       |
-| [`fast-mode`](plugins/fast-mode)       | Toggles fast, priority inference for configured models on supported providers.                           | `/fast`, `--fast`           |
-| [`speed`](plugins/speed)               | Measures inference speed per request — tokens/sec and time to first token.                               | `/speed`                    |
-| [`elapsed`](plugins/elapsed)           | Shows how long the agent has been working on the current prompt in the working indicator.                | —                           |
-| [`claude-oauth`](plugins/claude-oauth) | Makes pi's Anthropic OAuth requests match the current Claude Code client so OAuth login works correctly. | —                           |
-| [`exit`](plugins/exit)                 | Exits pi when `exit` or `quit` is submitted as the whole prompt.                                         | —                           |
-| [`prompts`](plugins/prompts)           | A collection of prompt templates, invoked as slash commands.                                             | `/simplify`, `/code-review` |
-| [`usage`](plugins/usage)               | Shows subscription usage/rate limits for Claude and OpenAI Codex plans.                                  | `/usage`                    |
+| Package                                | Description                                                                                              | Tools / commands      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------- |
+| [`webfetch`](plugins/webfetch)         | Fetches content over HTTP(S) and returns them as Markdown or raw HTML.                                   | `web_fetch`           |
+| [`subagent`](plugins/subagent)         | Delegates a task to a fresh, headless pi instance with an isolated context window.                       | `subagent`            |
+| [`checkpoint`](plugins/checkpoint)     | Keeps `/tree` conversation navigation and files on disk in sync with lightweight file checkpoints.       | `/checkpoint-cleanup` |
+| [`fast-mode`](plugins/fast-mode)       | Toggles fast, priority inference for configured models on supported providers.                           | `/fast`, `--fast`     |
+| [`speed`](plugins/speed)               | Measures inference speed per request — tokens/sec and time to first token.                               | `/speed`              |
+| [`elapsed`](plugins/elapsed)           | Shows how long the agent has been working on the current prompt in the working indicator.                | —                     |
+| [`claude-oauth`](plugins/claude-oauth) | Makes pi's Anthropic OAuth requests match the current Claude Code client so OAuth login works correctly. | —                     |
+| [`exit`](plugins/exit)                 | Exits pi when `exit` or `quit` is submitted as the whole prompt.                                         | —                     |
+| [`skills`](plugins/skills)             | A collection of skills the agent loads on demand.                                                        | —                     |
+| [`usage`](plugins/usage)               | Shows subscription usage/rate limits for Claude and OpenAI Codex plans.                                  | `/usage`              |
 
 ## Requirements
 
