@@ -15,9 +15,9 @@ This project vendors external repositories of key libraries as git subtrees unde
 working with related libraries to explore API's, find usage examples, and understand
 implementation details.
 
-- Effect-TS v4 (`.agents/repos/effect-smol/packages/`)
+- Effect-TS v4 (`.agents/repos/effect/packages/`)
 - pi-agent (`.agents/repos/pi/`)
 
-Subtrees are tracked in `.agents/repos/.subtrees` and managed with
-`scripts/add-subtree.sh` (add a new repo) and `scripts/update-subtree.sh` (pull
-latest).
+Subtrees are tracked in `.agents/repos/.subtrees`, pinned to the release each
+dependency is on, and managed with `scripts/add-subtree.sh` (add a new repo) and
+`scripts/update-subtree.sh` (pull the registered ref).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interactively select registered subtrees and pull latest.
+# Interactively select registered subtrees and pull their registered ref.
 #
 # Usage:
 #   scripts/update-subtree.sh         # interactive (fzf multi-select)
@@ -40,7 +40,7 @@ else
     --with-nth=1 \
     --prompt='subtrees to pull> ' \
     --header='TAB to multi-select, ENTER to confirm, ESC to cancel' \
-    --preview='printf "url:    %s\nbranch: %s\n" {2} {3}' \
+    --preview='printf "url: %s\nref: %s\n" {2} {3}' \
     --preview-window=down:3:wrap)"
 fi
 
@@ -50,11 +50,11 @@ if [[ -z "$selection" ]]; then
 fi
 
 fail=0
-while IFS=$'\t' read -r prefix url branch; do
+while IFS=$'\t' read -r prefix url ref; do
   [[ -z "$prefix" ]] && continue
   echo
-  echo ">> pulling $prefix from $url ($branch)"
-  if git subtree pull --prefix="$prefix" "$url" "$branch" --squash; then
+  echo ">> pulling $prefix from $url ($ref)"
+  if git subtree pull --prefix="$prefix" "$url" "$ref" --squash; then
     echo ">> ok: $prefix"
   else
     echo ">> FAILED: $prefix" >&2
