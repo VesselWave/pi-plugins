@@ -83,56 +83,60 @@ export function getTextOutput(
     .join('\n')
 }
 
-/**
- * Renders a `header` above its `content`. Trailing blank lines are dropped and
- * the body is capped to a 10-line preview unless `expanded`; when the preview
- * hides lines a "... (N more lines, ... to expand)" hint is appended. A
- * `truncation` notice footer is added when provided.
- */
-export function renderExpandableText({
-  header,
-  content,
-  expanded,
-  theme,
-  truncation,
-}: {
+export interface ExpandableTextOptions {
   header: string
   content: string
+  maxLines: number
   expanded: boolean
   theme: Theme
   truncation?: TruncationResult
-}): string {
-  const lines = content.split('\n')
-  while (lines.length > 0 && lines[lines.length - 1] === '') {
-    lines.pop()
-  }
+}
 
-  const maxLines = expanded ? lines.length : 10
-  const displayLines = lines.slice(0, maxLines)
-  const remaining = lines.length - maxLines
+/**
+ * Renders a `header` above its `content`, previewed at `maxLines` unless
+ * `expanded`. Trailing blank lines are dropped and a `truncation` notice footer
+ * is added when provided.
+ */
+export class ExpandableText implements Component {
+  private readonly parts: Component[]
 
-  let text = header
+  constructor({
+    header,
+    content,
+    maxLines,
+    expanded,
+    theme,
+    truncation,
+  }: ExpandableTextOptions) {
+    const body = content.replace(/\n+$/, '')
+    this.parts = [
+      new Text(header, 0, 0),
+      body
+        ? new TextPreview({
+            text: body,
+            maxLines,
+            expanded,
+            theme,
+            color: 'toolOutput',
+          })
+        : new Text(theme.fg('dim', '(empty response)'), 0, 0),
+    ]
 
-  if (displayLines.length > 0) {
-    text += `\n${displayLines
-      .map((line) => theme.fg('toolOutput', line.replace(/\t/g, '   ')))
-      .join('\n')}`
-  } else {
-    text += `\n${theme.fg('dim', '(empty response)')}`
-  }
-
-  if (remaining > 0) {
-    text += `\n${expandHint(remaining, theme)}`
-  }
-
-  if (truncation) {
-    const notice = formatTruncationNotice(truncation)
+    const notice = truncation ? formatTruncationNotice(truncation) : ''
     if (notice) {
-      text += `\n${theme.fg('warning', notice)}`
+      this.parts.push(new Text(theme.fg('warning', notice), 0, 0))
     }
   }
 
-  return text
+  invalidate(): void {
+    for (const part of this.parts) {
+      part.invalidate()
+    }
+  }
+
+  render(width: number): string[] {
+    return this.parts.flatMap((part) => part.render(width))
+  }
 }
 
 /**

@@ -2,7 +2,7 @@ import * as path from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { Text } from '@earendil-works/pi-tui'
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { renderExpandableText, TextPreview } from '@pi-plugins/shared'
+import { ExpandableText, TextPreview } from '@pi-plugins/shared'
 import { Effect } from 'effect'
 import { Type, type Static } from 'typebox'
 import {
@@ -18,7 +18,10 @@ import {
   subagentSessionDir,
 } from './utils'
 
+// Wrapped terminal rows, not source lines, so a row's height is bounded whatever
+// the prompt and the output happen to be shaped like.
 const PROMPT_PREVIEW_LINES = 3
+const OUTPUT_PREVIEW_LINES = 5
 const METADATA_LABEL_WIDTH = 9
 
 const subagentSchema = Type.Object({
@@ -229,20 +232,15 @@ export default function subagent(pi: ExtensionAPI) {
         header += `\n${theme.fg('error', `Error: ${details.errorMessage}`)}`
       }
 
-      // Keep the full output in details for explicit expansion, but bound the
-      // default rendering to pi's standard tool-output limits.
-      const displayContent = expanded ? content : capToolOutput(content)
-
-      const text = new Text('', 0, 0)
-      text.setText(
-        renderExpandableText({
-          header,
-          content: displayContent,
-          expanded,
-          theme,
-        }),
-      )
-      return text
+      return new ExpandableText({
+        header,
+        // Keep the full output in details for explicit expansion, but bound what
+        // the collapsed row has to wrap to pi's standard tool-output limits.
+        content: expanded ? content : capToolOutput(content),
+        maxLines: OUTPUT_PREVIEW_LINES,
+        expanded,
+        theme,
+      })
     },
   })
 }
