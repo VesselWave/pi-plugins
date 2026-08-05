@@ -19,8 +19,8 @@
   "devDependencies": {
     "@pi-plugins/fmt": "workspace:*",
     "@pi-plugins/tsconfig": "workspace:*",
-    "oxfmt": "0.59.0",
-    "oxlint": "1.74.0",
+    "oxfmt": "0.62.0",
+    "oxlint": "1.77.0",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
