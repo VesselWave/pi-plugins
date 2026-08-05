@@ -4,15 +4,11 @@ import { formatTruncationNotice } from '@pi-plugins/shared'
 import type { SubagentResult } from './runner'
 
 /**
- * Sits beside pi's per-project session directories, which are always named
- * `--<encoded cwd>--`, so child sessions stay out of `pi -c` / `pi -r` for any
- * project while remaining resolvable by id from anywhere.
+ * Beside pi's per-project session directories, which are always `--<cwd>--`, so
+ * child sessions stay out of `pi -c` / `pi -r` but resolve by id from anywhere.
  */
-const SESSION_DIR_NAME = 'subagents'
-
-/** Directory the child pi processes persist their sessions into. */
 export function subagentSessionDir(): string {
-  return path.join(getAgentDir(), 'sessions', SESSION_DIR_NAME)
+  return path.join(getAgentDir(), 'sessions', 'subagents')
 }
 
 /** Caps text to pi's standard tool-output limits, appending a notice when truncated. */
@@ -37,24 +33,19 @@ export function formatTokens(count: number): string {
   return `${(count / 1000000).toFixed(1)}M`
 }
 
-function pad(value: number): string {
-  return value.toString().padStart(2, '0')
-}
-
-/** Formats a wall-clock duration compactly (e.g. `9s`, `1m22s`, `2h07m30s`). */
+/** Formats a duration compactly (e.g. `9s`, `1m22s`, `2h07m30s`). */
 function formatDuration(ms: number): string {
   const totalSeconds = Math.round(ms / 1000)
-  const seconds = totalSeconds % 60
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+
+  const seconds = `${totalSeconds % 60}`.padStart(2, '0')
   const minutes = Math.floor(totalSeconds / 60) % 60
   const hours = Math.floor(totalSeconds / 3600)
-
-  if (hours > 0) {
-    return `${hours}h${pad(minutes)}m${pad(seconds)}s`
-  }
-  if (minutes > 0) {
-    return `${minutes}m${pad(seconds)}s`
-  }
-  return `${seconds}s`
+  return hours > 0
+    ? `${hours}h${`${minutes}`.padStart(2, '0')}m${seconds}s`
+    : `${minutes}m${seconds}s`
 }
 
 /** Formats a finished run as one line: turns, tools, tokens, cost, duration. */

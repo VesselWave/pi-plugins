@@ -21,17 +21,14 @@ export interface SubagentUsage {
   contextTokens: number
 }
 
-/**
- * What a subagent run produced: the child's final output plus what it took to
- * get there. Errors carry the partial result of the work done before failing.
- */
+/** What a run produced; errors carry the partial result of the work done so far. */
 export interface SubagentResult {
   output: string
   toolCalls: number
   usage: SubagentUsage
-  /** Child's pi session id, read from the `session` header of its event stream. */
+  /** Child's pi session id, from the `session` header of its event stream. */
   sessionId?: string | undefined
-  /** Wall-clock duration of the child process, in milliseconds. */
+  /** Wall-clock duration of the child process. */
   durationMs?: number | undefined
 }
 
@@ -98,13 +95,12 @@ export class SubagentNoOutputError extends Data.TaggedError(
     (this.stderr.trim() ? `\nstderr: ${this.stderr.trim()}` : '')
 }
 
-/** The session header pi prints as the first line of a `--mode json` stream. */
+/** The header pi prints as the first line of a `--mode json` stream. */
 const SessionHeader = Schema.Struct({
   type: Schema.Literal('session'),
   id: Schema.String,
 })
 
-/** A completed assistant message. */
 const AssistantMessageEnd = Schema.Struct({
   type: Schema.Literal('message_end'),
   message: Schema.Struct({
@@ -217,7 +213,6 @@ function resolvePiInvocation(args: ReadonlyArray<string>): {
  */
 export function runSubagent(options: {
   prompt: string
-  /** Directory the child persists its session into. */
   sessionDir: string
   /** Display name for the child's session. */
   name?: string | undefined
@@ -227,7 +222,7 @@ export function runSubagent(options: {
   cwd?: string | undefined
   /** Tool allowlist for the child. */
   tools?: ReadonlyArray<string> | undefined
-  /** Called once, when the child reports the id of the session it writes to. */
+  /** Called once, when the child reports its session id. */
   onSession?: ((sessionId: string) => void) | undefined
 }): Effect.Effect<
   SubagentResult,
@@ -247,8 +242,7 @@ export function runSubagent(options: {
         '--exclude-tools',
         'subagent',
       ]
-      // pi rejects an empty --name, and an unnamed run is still identifiable
-      // by its prompt in the session picker.
+      // pi exits on an empty --name.
       const name = options.name?.trim()
       if (name) {
         args.push('--name', name)
@@ -305,8 +299,7 @@ export function runSubagent(options: {
           (previous, event) =>
             Effect.sync(() => {
               if (event.type === 'session') {
-                // The first header wins: reporting a later one would cost the
-                // row the extra render this whole design avoids.
+                // A second header would cost the caller an extra render.
                 if (previous.result.sessionId !== undefined) {
                   return previous
                 }

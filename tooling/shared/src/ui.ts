@@ -13,7 +13,6 @@ import {
 import type { Component } from '@earendil-works/pi-tui'
 import { Text, truncateToWidth } from '@earendil-works/pi-tui'
 
-/** pi's standard hint for content hidden behind the expand keybinding. */
 function expandHint(hidden: number, theme: Theme): string {
   return `${theme.fg('muted', `... (${hidden} more lines,`)} ${keyHint(
     'app.tools.expand',
@@ -23,18 +22,15 @@ function expandHint(hidden: number, theme: Theme): string {
 
 export interface TextPreviewOptions {
   text: string
-  /** Visual lines to show before the rest is folded behind the expand hint. */
   maxLines: number
   expanded: boolean
   theme: Theme
-  /** Theme color applied to the preview body. */
   color?: ThemeColor
 }
 
 /**
- * Previews `text` capped at `maxLines` *visual* lines: lines as the terminal
- * wraps them at the actual render width, so one long paragraph previews as its
- * first wrapped lines instead of a wall of text.
+ * Previews `text` capped at `maxLines` lines as the terminal wraps them at the
+ * real render width, so a long paragraph does not preview as a wall of text.
  */
 export class TextPreview implements Component {
   private readonly body: Text
@@ -49,7 +45,7 @@ export class TextPreview implements Component {
     theme,
     color = 'dim',
   }: TextPreviewOptions) {
-    // Color per source line; wrapping carries the codes onto each visual line.
+    // Color per source line: wrapping re-emits the codes on each visual line.
     const styled = text
       .split('\n')
       .map((line) => theme.fg(color, line))

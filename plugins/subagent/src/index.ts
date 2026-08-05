@@ -19,8 +19,6 @@ import {
 } from './utils'
 
 const PROMPT_PREVIEW_LINES = 3
-
-/** Column the metadata values line up at. */
 const METADATA_LABEL_WIDTH = 9
 
 const subagentSchema = Type.Object({
@@ -46,9 +44,7 @@ const subagentSchema = Type.Object({
 export type SubagentInput = Static<typeof subagentSchema>
 
 interface SubagentDetails extends SubagentResult {
-  /** Working directory the child ran in. */
   cwd?: string | undefined
-  /** Model pattern the child was started with, resolved at call time. */
   model?: string | undefined
   /** Set on the final result when the run failed. */
   failed?: boolean | undefined
@@ -115,9 +111,8 @@ export default function subagent(pi: ExtensionAPI) {
         model,
         cwd,
         tools,
-        // The only live update: every further redraw of a row that has scrolled
-        // out of view drags pi's viewport around, so the session id is what the
-        // run reports instead of streaming progress.
+        // The only live update: each one repaints pi's scrollback once the row
+        // has scrolled out of view.
         onSession: (sessionId) => {
           onUpdate?.({
             content: [{ type: 'text', text: '' }],
@@ -191,29 +186,27 @@ export default function subagent(pi: ExtensionAPI) {
       }
     },
     renderResult({ details }, { expanded, isPartial }, theme, context) {
-      const metadata: string[] = []
-      const addMetadata = (label: string, value: string) => {
-        metadata.push(
-          theme.fg('dim', label.padEnd(METADATA_LABEL_WIDTH)) +
-            theme.fg('muted', value),
-        )
-      }
+      const metadata: Array<[string, string]> = []
       if (details.cwd !== undefined && details.cwd !== context.cwd) {
-        addMetadata('cwd', details.cwd)
+        metadata.push(['cwd', details.cwd])
       }
       if (details.model !== undefined) {
-        addMetadata('model', details.model)
+        metadata.push(['model', details.model])
       }
       if (details.sessionId !== undefined) {
-        // Never truncated: session ids are uuidv7, so a prefix collides across a
-        // parallel batch of subagents and `pi --session` resolves an arbitrary one.
-        addMetadata('session', details.sessionId)
+        // Never a prefix: uuidv7 ids share their leading digits across a batch.
+        metadata.push(['session', details.sessionId])
       }
 
-      const metadataBlock = metadata.join('\n')
+      const metadataBlock = metadata
+        .map(
+          ([label, value]) =>
+            theme.fg('dim', label.padEnd(METADATA_LABEL_WIDTH)) +
+            theme.fg('muted', value),
+        )
+        .join('\n')
 
-      // While running the metadata is the whole row; the pending background
-      // tint says it is still going.
+      // No status line while running: the pending background tint is the indicator.
       if (isPartial) {
         return new Text(metadataBlock ? `\n${metadataBlock}` : '', 0, 0)
       }

@@ -38,9 +38,8 @@ pi -e ./plugins/subagent
 
 ## The tool row
 
-The row does not stream. It paints twice — once when the child reports its session
-id, once when the run ends — so subagents that scroll out of view never drag the
-viewport around:
+The row does not stream: it paints when the child reports its session id, and again
+when the run ends.
 
 ```text
 subagent Investigate the failing test
@@ -57,25 +56,13 @@ subagent Investigate the failing test
   Root cause: the CI image pins an older openssl, so the fixture's certificate...
 ```
 
-`cwd` shows only when the child ran somewhere other than the parent session's
-directory. While the run is in flight the row shows the metadata list alone, tinted
-as pending. `ctrl+o` expands the full prompt and the full output.
+`cwd` shows only when it differs from the parent's. `ctrl+o` expands the prompt and
+the output.
 
 ## Sessions
 
-Each child persists a real session, named after the call's `description`, so you can
-open what a subagent actually did:
-
-```bash
-pi --session 019fd2ff-cca1-7a91-866c-7eedf6bc222c
-```
-
-pi resolves the id from anywhere and offers to fork the run into the current
-directory; pass the session file path instead to open it in place. Either way it is a
-snapshot at open time — pi has no live-follow of a session file.
-
-Child sessions live in `~/.pi/agent/sessions/subagents/`, beside pi's per-project
-session directories rather than inside one. They therefore never show up in `pi -c`
-or `pi -r` for a project — otherwise `pi -c` would resume the most recent _subagent_
-run — while staying resolvable by id and listed in the all-projects picker. Nothing
-prunes them.
+Children persist a session named after the call's `description`, so
+`pi --session <id>` opens what a subagent did. They live in
+`~/.pi/agent/sessions/subagents/`, outside any project directory, so they never
+appear in `pi -c` or `pi -r` — pi offers to fork them into the current directory
+instead. Nothing prunes them.
