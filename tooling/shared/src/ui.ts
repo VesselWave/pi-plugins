@@ -1,6 +1,7 @@
 import type {
   AgentToolResult,
   Theme,
+  ThemeColor,
   TruncationResult,
 } from '@earendil-works/pi-coding-agent'
 import {
@@ -9,31 +10,71 @@ import {
   formatSize,
   keyHint,
 } from '@earendil-works/pi-coding-agent'
+import type { Component } from '@earendil-works/pi-tui'
+import { Text, truncateToWidth } from '@earendil-works/pi-tui'
+
+/** pi's standard hint for content hidden behind the expand keybinding. */
+function expandHint(hidden: number, theme: Theme): string {
+  return `${theme.fg('muted', `... (${hidden} more lines,`)} ${keyHint(
+    'app.tools.expand',
+    'to expand',
+  )})`
+}
+
+export interface TextPreviewOptions {
+  text: string
+  /** Visual lines to show before the rest is folded behind the expand hint. */
+  maxLines: number
+  expanded: boolean
+  theme: Theme
+  /** Theme color applied to the preview body. */
+  color?: ThemeColor
+}
 
 /**
- * Wraps text into at most `maxLines` preview lines of `width` characters,
- * marking the last line with `...` when the text was cut off.
+ * Previews `text` capped at `maxLines` *visual* lines: lines as the terminal
+ * wraps them at the actual render width, so one long paragraph previews as its
+ * first wrapped lines instead of a wall of text.
  */
-export function previewLines(
-  text: string,
-  maxLines: number,
-  width: number,
-): string[] {
-  const lines: string[] = []
-  outer: for (const line of text.split('\n')) {
-    for (let i = 0; i === 0 || i < line.length; i += width) {
-      lines.push(line.slice(i, i + width))
-      if (lines.length > maxLines) {
-        break outer
-      }
+export class TextPreview implements Component {
+  private readonly body: Text
+  private readonly maxLines: number
+  private readonly expanded: boolean
+  private readonly theme: Theme
+
+  constructor({
+    text,
+    maxLines,
+    expanded,
+    theme,
+    color = 'dim',
+  }: TextPreviewOptions) {
+    // Color per source line; wrapping carries the codes onto each visual line.
+    const styled = text
+      .split('\n')
+      .map((line) => theme.fg(color, line))
+      .join('\n')
+    this.body = new Text(styled, 0, 0)
+    this.maxLines = maxLines
+    this.expanded = expanded
+    this.theme = theme
+  }
+
+  invalidate(): void {
+    this.body.invalidate()
+  }
+
+  render(width: number): string[] {
+    const lines = this.body.render(width)
+    const hidden = lines.length - this.maxLines
+    if (this.expanded || hidden <= 0) {
+      return lines
     }
+    return [
+      ...lines.slice(0, this.maxLines),
+      truncateToWidth(expandHint(hidden, this.theme), width, '...'),
+    ]
   }
-  if (lines.length <= maxLines) {
-    return lines
-  }
-  const preview = lines.slice(0, maxLines)
-  preview[maxLines - 1] += '...'
-  return preview
 }
 
 /** Joins all text blocks of a tool result into one string, stripping carriage returns. */
@@ -85,10 +126,7 @@ export function renderExpandableText({
   }
 
   if (remaining > 0) {
-    text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint(
-      'app.tools.expand',
-      'to expand',
-    )})`
+    text += `\n${expandHint(remaining, theme)}`
   }
 
   if (truncation) {

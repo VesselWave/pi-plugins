@@ -22,25 +22,21 @@ export interface SubagentUsage {
 }
 
 /**
- * Progress of a subagent run, emitted after every completed message and
- * returned as the final value of a successful run.
+ * What a subagent run produced: the child's final output plus what it took to
+ * get there. Errors carry the partial result of the work done before failing.
  */
-export interface SubagentSnapshot {
+export interface SubagentResult {
   output: string
-  /**
-   * Latest thinking/reasoning summary. Used as a live status fallback for
-   * models that emit no interim text between tool calls (e.g. OpenAI/codex
-   * models, which only produce a text block on their final message).
-   */
-  thinking: string
   toolCalls: number
   usage: SubagentUsage
-  model?: string | undefined
+  /** Child's pi session id, read from the `session` header of its event stream. */
+  sessionId?: string | undefined
+  /** Wall-clock duration of the child process, in milliseconds. */
+  durationMs?: number | undefined
 }
 
-export const emptySnapshot: SubagentSnapshot = {
+export const emptyResult: SubagentResult = {
   output: '',
-  thinking: '',
   toolCalls: 0,
   usage: {
     turns: 0,
@@ -63,12 +59,12 @@ export class SubagentStopError extends Data.TaggedError('SubagentStopError')<{
   readonly errorMessage?: string | undefined
   readonly stderr: string
   /** Progress made up to the failure. */
-  readonly snapshot: SubagentSnapshot
+  readonly result: SubagentResult
 }> {
   override readonly message: string =
     this.errorMessage ||
     this.stderr.trim() ||
-    this.snapshot.output ||
+    this.result.output ||
     `run stopped (${this.reason})`
 }
 
@@ -77,11 +73,11 @@ export class SubagentExitError extends Data.TaggedError('SubagentExitError')<{
   readonly exitCode: number
   readonly stderr: string
   /** Progress made up to the failure. */
-  readonly snapshot: SubagentSnapshot
+  readonly result: SubagentResult
 }> {
   override readonly message: string =
     this.stderr.trim() ||
-    this.snapshot.output ||
+    this.result.output ||
     `pi exited with code ${this.exitCode}`
 }
 
@@ -94,98 +90,97 @@ export class SubagentNoOutputError extends Data.TaggedError(
   'SubagentNoOutputError',
 )<{
   readonly stderr: string
+  /** Progress made up to the failure. */
+  readonly result: SubagentResult
 }> {
   override readonly message: string =
     'Subagent produced no assistant messages (unexpected or empty JSON event stream)' +
     (this.stderr.trim() ? `\nstderr: ${this.stderr.trim()}` : '')
 }
 
-/**
- * The `--mode json` event lines we care about (see pi docs/json.md): completed
- * assistant messages.
- */
-const AssistantMessageEnd = Schema.fromJsonString(
-  Schema.Struct({
-    type: Schema.Literal('message_end'),
-    message: Schema.Struct({
-      role: Schema.Literal('assistant'),
-      content: Schema.Array(
-        Schema.Struct({
-          type: Schema.String,
-          text: Schema.optional(Schema.String),
-          thinking: Schema.optional(Schema.String),
-        }),
-      ),
-      usage: Schema.optional(
-        Schema.Struct({
-          input: Schema.optional(Schema.Number),
-          output: Schema.optional(Schema.Number),
-          cacheRead: Schema.optional(Schema.Number),
-          cacheWrite: Schema.optional(Schema.Number),
-          totalTokens: Schema.optional(Schema.Number),
-          cost: Schema.optional(
-            Schema.Struct({ total: Schema.optional(Schema.Number) }),
-          ),
-        }),
-      ),
-      model: Schema.optional(Schema.String),
-      stopReason: Schema.optional(Schema.String),
-      errorMessage: Schema.optional(Schema.String),
-    }),
+/** The session header pi prints as the first line of a `--mode json` stream. */
+const SessionHeader = Schema.Struct({
+  type: Schema.Literal('session'),
+  id: Schema.String,
+})
+
+/** A completed assistant message. */
+const AssistantMessageEnd = Schema.Struct({
+  type: Schema.Literal('message_end'),
+  message: Schema.Struct({
+    role: Schema.Literal('assistant'),
+    content: Schema.Array(
+      Schema.Struct({
+        type: Schema.String,
+        text: Schema.optional(Schema.String),
+      }),
+    ),
+    usage: Schema.optional(
+      Schema.Struct({
+        input: Schema.optional(Schema.Number),
+        output: Schema.optional(Schema.Number),
+        cacheRead: Schema.optional(Schema.Number),
+        cacheWrite: Schema.optional(Schema.Number),
+        totalTokens: Schema.optional(Schema.Number),
+        cost: Schema.optional(
+          Schema.Struct({ total: Schema.optional(Schema.Number) }),
+        ),
+      }),
+    ),
+    stopReason: Schema.optional(Schema.String),
+    errorMessage: Schema.optional(Schema.String),
   }),
+})
+
+/**
+ * The `--mode json` event lines we care about (see pi docs/json.md): the
+ * session header and completed assistant messages.
+ */
+const SubagentEvent = Schema.fromJsonString(
+  Schema.Union([SessionHeader, AssistantMessageEnd]),
 )
 
 type AssistantMessage = (typeof AssistantMessageEnd)['Type']['message']
 
-/** Fold state: the public snapshot plus the child's last reported stop info. */
+/** Fold state: the public result plus the child's last reported stop info. */
 interface RunState {
-  snapshot: SubagentSnapshot
+  result: SubagentResult
   stopReason?: string | undefined
   errorMessage?: string | undefined
 }
 
-const initialState: RunState = { snapshot: emptySnapshot }
+const initialState: RunState = { result: emptyResult }
 
 /** Folds one completed assistant message into the run state. */
 function foldMessage(state: RunState, message: AssistantMessage): RunState {
-  const { snapshot } = state
-  let toolCalls = snapshot.toolCalls
+  const { result } = state
+  let toolCalls = result.toolCalls
   const texts: string[] = []
-  const thinkingTexts: string[] = []
   for (const part of message.content) {
     if (part.type === 'text' && part.text !== undefined) {
       texts.push(part.text)
-    } else if (part.type === 'thinking' && part.thinking !== undefined) {
-      thinkingTexts.push(part.thinking)
     } else if (part.type === 'toolCall') {
       toolCalls += 1
     }
   }
   const text = texts.join('\n\n').trim()
-  const output = text.length > 0 ? text : snapshot.output
-  // Strip empty HTML-comment separators that codex reasoning summaries embed.
-  const thinkingText = thinkingTexts
-    .join('\n\n')
-    .replace(/<!--\s*-->/g, '')
-    .trim()
-  const thinking = thinkingText.length > 0 ? thinkingText : snapshot.thinking
+  const output = text.length > 0 ? text : result.output
 
   const usage = message.usage
   return {
-    snapshot: {
+    result: {
+      ...result,
       output,
-      thinking,
       toolCalls,
       usage: {
-        turns: snapshot.usage.turns + 1,
-        input: snapshot.usage.input + (usage?.input ?? 0),
-        output: snapshot.usage.output + (usage?.output ?? 0),
-        cacheRead: snapshot.usage.cacheRead + (usage?.cacheRead ?? 0),
-        cacheWrite: snapshot.usage.cacheWrite + (usage?.cacheWrite ?? 0),
-        cost: snapshot.usage.cost + (usage?.cost?.total ?? 0),
-        contextTokens: usage?.totalTokens ?? snapshot.usage.contextTokens,
+        turns: result.usage.turns + 1,
+        input: result.usage.input + (usage?.input ?? 0),
+        output: result.usage.output + (usage?.output ?? 0),
+        cacheRead: result.usage.cacheRead + (usage?.cacheRead ?? 0),
+        cacheWrite: result.usage.cacheWrite + (usage?.cacheWrite ?? 0),
+        cost: result.usage.cost + (usage?.cost?.total ?? 0),
+        contextTokens: usage?.totalTokens ?? result.usage.contextTokens,
       },
-      model: message.model ?? snapshot.model,
     },
     stopReason: message.stopReason ?? state.stopReason,
     errorMessage: message.errorMessage ?? state.errorMessage,
@@ -218,20 +213,24 @@ function resolvePiInvocation(args: ReadonlyArray<string>): {
 
 /**
  * Runs one headless pi instance for the given prompt and folds its JSONL
- * event stream into a `SubagentSnapshot`.
+ * event stream into a `SubagentResult`.
  */
 export function runSubagent(options: {
   prompt: string
+  /** Directory the child persists its session into. */
+  sessionDir: string
+  /** Display name for the child's session. */
+  name?: string | undefined
   /** Optional model override, passed to `pi --model`. */
   model?: string | undefined
   /** Working directory for the spawned pi process. */
   cwd?: string | undefined
   /** Tool allowlist for the child. */
   tools?: ReadonlyArray<string> | undefined
-  /** Called with a fresh snapshot whenever the subagent completes a message. */
-  onUpdate?: ((snapshot: SubagentSnapshot) => void) | undefined
+  /** Called once, when the child reports the id of the session it writes to. */
+  onSession?: ((sessionId: string) => void) | undefined
 }): Effect.Effect<
-  SubagentSnapshot,
+  SubagentResult,
   SubagentStopError | SubagentExitError | SubagentNoOutputError | PlatformError,
   ChildProcessSpawner.ChildProcessSpawner
 > {
@@ -243,10 +242,17 @@ export function runSubagent(options: {
         '--mode',
         'json',
         '-p',
-        '--no-session',
+        '--session-dir',
+        options.sessionDir,
         '--exclude-tools',
         'subagent',
       ]
+      // pi rejects an empty --name, and an unnamed run is still identifiable
+      // by its prompt in the session picker.
+      const name = options.name?.trim()
+      if (name) {
+        args.push('--name', name)
+      }
       // Inherit the parent's active tool set so a restricted parent
       // (e.g. `--tools read`) cannot be escaped through the child.
       if (options.tools !== undefined) {
@@ -260,6 +266,7 @@ export function runSubagent(options: {
         args.push('--model', options.model)
       }
       const invocation = resolvePiInvocation(args)
+      const startedAt = Date.now()
       const handle = yield* ChildProcess.make(
         invocation.command,
         [...invocation.args],
@@ -273,8 +280,6 @@ export function runSubagent(options: {
           forceKillAfter: FORCE_KILL_AFTER,
         },
       )
-
-      options.onUpdate?.(emptySnapshot)
 
       const stderrFiber = yield* Effect.forkScoped(
         handle.stderr.pipe(
@@ -293,41 +298,49 @@ export function runSubagent(options: {
         Stream.decodeText,
         Stream.splitLines,
         Stream.filterMap(
-          Filter.fromPredicateOption(
-            Schema.decodeUnknownOption(AssistantMessageEnd),
-          ),
+          Filter.fromPredicateOption(Schema.decodeUnknownOption(SubagentEvent)),
         ),
         Stream.runFoldEffect(
           () => initialState,
           (previous, event) =>
             Effect.sync(() => {
-              const next = foldMessage(previous, event.message)
-              options.onUpdate?.(next.snapshot)
-              return next
+              if (event.type === 'session') {
+                // The first header wins: reporting a later one would cost the
+                // row the extra render this whole design avoids.
+                if (previous.result.sessionId !== undefined) {
+                  return previous
+                }
+                options.onSession?.(event.id)
+                return {
+                  ...previous,
+                  result: { ...previous.result, sessionId: event.id },
+                }
+              }
+              return foldMessage(previous, event.message)
             }),
         ),
       )
 
       const exitCode = Number(yield* handle.exitCode)
       const stderr = yield* Fiber.join(stderrFiber)
-      const { snapshot } = state
+      const result = { ...state.result, durationMs: Date.now() - startedAt }
 
       if (state.stopReason === 'error' || state.stopReason === 'aborted') {
         return yield* new SubagentStopError({
           reason: state.stopReason,
           errorMessage: state.errorMessage,
           stderr,
-          snapshot,
+          result,
         })
       }
       if (exitCode !== 0) {
-        return yield* new SubagentExitError({ exitCode, stderr, snapshot })
+        return yield* new SubagentExitError({ exitCode, stderr, result })
       }
-      if (snapshot.usage.turns === 0) {
-        return yield* new SubagentNoOutputError({ stderr })
+      if (result.usage.turns === 0) {
+        return yield* new SubagentNoOutputError({ stderr, result })
       }
 
-      return snapshot
+      return result
     }),
   )
 }

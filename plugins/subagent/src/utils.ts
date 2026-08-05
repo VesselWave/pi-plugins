@@ -1,6 +1,19 @@
-import { truncateHead } from '@earendil-works/pi-coding-agent'
+import * as path from 'node:path'
+import { getAgentDir, truncateHead } from '@earendil-works/pi-coding-agent'
 import { formatTruncationNotice } from '@pi-plugins/shared'
-import type { SubagentUsage } from './runner'
+import type { SubagentResult } from './runner'
+
+/**
+ * Sits beside pi's per-project session directories, which are always named
+ * `--<encoded cwd>--`, so child sessions stay out of `pi -c` / `pi -r` for any
+ * project while remaining resolvable by id from anywhere.
+ */
+const SESSION_DIR_NAME = 'subagents'
+
+/** Directory the child pi processes persist their sessions into. */
+export function subagentSessionDir(): string {
+  return path.join(getAgentDir(), 'sessions', SESSION_DIR_NAME)
+}
 
 /** Caps text to pi's standard tool-output limits, appending a notice when truncated. */
 export function capToolOutput(text: string): string {
@@ -24,17 +37,34 @@ export function formatTokens(count: number): string {
   return `${(count / 1000000).toFixed(1)}M`
 }
 
-/** Formats usage stats as a compact one-line summary (turns, tools, tokens, cost, model). */
-export function formatUsage(
-  usage: SubagentUsage,
-  model?: string,
-  toolCalls?: number,
-): string {
+function pad(value: number): string {
+  return value.toString().padStart(2, '0')
+}
+
+/** Formats a wall-clock duration compactly (e.g. `9s`, `1m22s`, `2h07m30s`). */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60) % 60
+  const hours = Math.floor(totalSeconds / 3600)
+
+  if (hours > 0) {
+    return `${hours}h${pad(minutes)}m${pad(seconds)}s`
+  }
+  if (minutes > 0) {
+    return `${minutes}m${pad(seconds)}s`
+  }
+  return `${seconds}s`
+}
+
+/** Formats a finished run as one line: turns, tools, tokens, cost, duration. */
+export function formatStats(result: SubagentResult): string {
+  const { usage, toolCalls } = result
   const parts: string[] = []
   if (usage.turns > 0) {
     parts.push(`${usage.turns} turn${usage.turns > 1 ? 's' : ''}`)
   }
-  if (toolCalls !== undefined && toolCalls > 0) {
+  if (toolCalls > 0) {
     parts.push(`${toolCalls} tool${toolCalls > 1 ? 's' : ''}`)
   }
   if (usage.input > 0) {
@@ -52,8 +82,8 @@ export function formatUsage(
   if (usage.cost > 0) {
     parts.push(`$${usage.cost.toFixed(4)}`)
   }
-  if (model !== undefined) {
-    parts.push(model)
+  if (result.durationMs !== undefined) {
+    parts.push(formatDuration(result.durationMs))
   }
   return parts.join(' ')
 }

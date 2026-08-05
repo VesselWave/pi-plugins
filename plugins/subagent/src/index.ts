@@ -2,19 +2,26 @@ import * as path from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { Text } from '@earendil-works/pi-tui'
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { previewLines, renderExpandableText } from '@pi-plugins/shared'
+import { renderExpandableText, TextPreview } from '@pi-plugins/shared'
 import { Effect } from 'effect'
 import { Type, type Static } from 'typebox'
 import {
-  emptySnapshot,
+  emptyResult,
   runSubagent,
-  type SubagentSnapshot,
+  type SubagentResult,
   type SubagentUsage,
 } from './runner'
-import { capToolOutput, formatUsage, modelPattern } from './utils'
+import {
+  capToolOutput,
+  formatStats,
+  modelPattern,
+  subagentSessionDir,
+} from './utils'
 
-const PROMPT_PREVIEW_LINES = 2
-const PROMPT_PREVIEW_WIDTH = 80
+const PROMPT_PREVIEW_LINES = 3
+
+/** Column the metadata values line up at. */
+const METADATA_LABEL_WIDTH = 9
 
 const subagentSchema = Type.Object({
   description: Type.String({
@@ -38,7 +45,11 @@ const subagentSchema = Type.Object({
 
 export type SubagentInput = Static<typeof subagentSchema>
 
-interface SubagentDetails extends SubagentSnapshot {
+interface SubagentDetails extends SubagentResult {
+  /** Working directory the child ran in. */
+  cwd?: string | undefined
+  /** Model pattern the child was started with, resolved at call time. */
+  model?: string | undefined
   /** Set on the final result when the run failed. */
   failed?: boolean | undefined
   errorMessage?: string | undefined
@@ -87,6 +98,11 @@ export default function subagent(pi: ExtensionAPI) {
           ? modelPattern(ctx.model, pi.getThinkingLevel())
           : undefined)
 
+      // Resolve relative cwd against the parent session's cwd, not the process
+      // cwd (they can differ for resumed/cross-project sessions).
+      const cwd =
+        params.cwd !== undefined ? path.resolve(ctx.cwd, params.cwd) : ctx.cwd
+
       // Inherit the parent's active tool set (minus subagent itself) so a
       // restricted parent (e.g. `pi --tools read`) cannot be escaped by
       // delegating to a child with default tools.
@@ -94,34 +110,32 @@ export default function subagent(pi: ExtensionAPI) {
 
       const program = runSubagent({
         prompt: params.prompt,
+        sessionDir: subagentSessionDir(),
+        name: params.description,
         model,
-        // Resolve relative cwd against the parent session's cwd, not the
-        // process cwd (they can differ for resumed/cross-project sessions).
-        cwd: params.cwd !== undefined ? path.resolve(ctx.cwd, params.cwd) : ctx.cwd,
+        cwd,
         tools,
-        onUpdate: (snapshot) => {
+        // The only live update: every further redraw of a row that has scrolled
+        // out of view drags pi's viewport around, so the session id is what the
+        // run reports instead of streaming progress.
+        onSession: (sessionId) => {
           onUpdate?.({
-            content: [
-              {
-                type: 'text',
-                text: snapshot.output || snapshot.thinking || '(running...)',
-              },
-            ],
-            details: snapshot,
+            content: [{ type: 'text', text: '' }],
+            details: { ...emptyResult, sessionId, model, cwd },
           })
         },
       }).pipe(
-        Effect.map((snapshot) => ({
+        Effect.map((result) => ({
           content: [
             {
               type: 'text' as const,
-              text: snapshot.output ? capToolOutput(snapshot.output) : '(no output)',
+              text: result.output ? capToolOutput(result.output) : '(no output)',
             },
           ],
-          details: snapshot as SubagentDetails,
+          details: { ...result, model, cwd },
         })),
         Effect.catch((error) => {
-          const snapshot = 'snapshot' in error ? error.snapshot : emptySnapshot
+          const result = 'result' in error ? error.result : emptyResult
           const label = error._tag === 'SubagentStopError' ? error.reason : 'failed'
           const reason =
             error._tag === 'PlatformError'
@@ -135,7 +149,9 @@ export default function subagent(pi: ExtensionAPI) {
               },
             ],
             details: {
-              ...snapshot,
+              ...result,
+              model,
+              cwd,
               failed: true,
               errorMessage: reason,
               stderr: 'stderr' in error ? error.stderr : undefined,
@@ -149,59 +165,72 @@ export default function subagent(pi: ExtensionAPI) {
 
       return await Effect.runPromise(program, { signal })
     },
-    renderCall(args, theme) {
-      let text =
+    renderCall(args, theme, { expanded }) {
+      const title = new Text(
         theme.fg('toolTitle', theme.bold('subagent ')) +
-        theme.fg('accent', args.description ?? '...')
-
-      const extras: string[] = []
-      if (args.model !== undefined) {
-        extras.push(args.model)
-      }
-      if (args.cwd !== undefined) {
-        extras.push(args.cwd)
-      }
-      if (extras.length > 0) {
-        text += theme.fg('muted', ` (${extras.join(', ')})`)
+          theme.fg('accent', args.description ?? '...'),
+        0,
+        0,
+      )
+      if (args.prompt === undefined) {
+        return title
       }
 
-      if (args.prompt !== undefined) {
-        for (const line of previewLines(
-          args.prompt,
-          PROMPT_PREVIEW_LINES,
-          PROMPT_PREVIEW_WIDTH,
-        )) {
-          text += `\n${theme.fg('dim', line)}`
-        }
+      const preview = new TextPreview({
+        text: args.prompt,
+        maxLines: PROMPT_PREVIEW_LINES,
+        expanded,
+        theme,
+      })
+      return {
+        render: (width) => [...title.render(width), ...preview.render(width)],
+        invalidate: () => {
+          title.invalidate()
+          preview.invalidate()
+        },
       }
-
-      return new Text(text, 0, 0)
     },
-    renderResult({ details }, { expanded, isPartial }, theme) {
-      const running = isPartial
-      const failed = details.failed === true
-
-      const icon = running
-        ? theme.fg('accent', '●')
-        : failed
-          ? theme.fg('error', '✗')
-          : theme.fg('success', '✓')
-
-      const usage = formatUsage(details.usage, details.model, details.toolCalls)
-      let header = icon
-      if (usage) {
-        header += ` ${theme.fg('muted', usage)}`
-      } else if (running) {
-        header += ` ${theme.fg('muted', 'starting...')}`
+    renderResult({ details }, { expanded, isPartial }, theme, context) {
+      const metadata: string[] = []
+      const addMetadata = (label: string, value: string) => {
+        metadata.push(
+          theme.fg('dim', label.padEnd(METADATA_LABEL_WIDTH)) +
+            theme.fg('muted', value),
+        )
       }
-      // Models that emit no interim text (e.g. OpenAI/codex) still stream
-      // thinking summaries; surface those as live status while running.
+      if (details.cwd !== undefined && details.cwd !== context.cwd) {
+        addMetadata('cwd', details.cwd)
+      }
+      if (details.model !== undefined) {
+        addMetadata('model', details.model)
+      }
+      if (details.sessionId !== undefined) {
+        // Never truncated: session ids are uuidv7, so a prefix collides across a
+        // parallel batch of subagents and `pi --session` resolves an arbitrary one.
+        addMetadata('session', details.sessionId)
+      }
+
+      const metadataBlock = metadata.join('\n')
+
+      // While running the metadata is the whole row; the pending background
+      // tint says it is still going.
+      if (isPartial) {
+        return new Text(metadataBlock ? `\n${metadataBlock}` : '', 0, 0)
+      }
+
+      const failed = details.failed === true
+      const stats = formatStats(details)
+      let status = failed ? theme.fg('error', '✗') : theme.fg('success', '✓')
+      if (stats) {
+        status += ` ${theme.fg('muted', stats)}`
+      }
+
       const content =
         details.output ||
-        (running ? details.thinking : '') ||
         (failed ? (details.stderr?.trim() ?? '') : '') ||
-        (running ? '(running...)' : '(no output)')
+        '(no output)'
 
+      let header = metadataBlock ? `\n${metadataBlock}\n\n${status}` : `\n${status}`
       // Skip the error line when it would repeat the rendered content.
       if (failed && details.errorMessage && details.errorMessage !== content) {
         header += `\n${theme.fg('error', `Error: ${details.errorMessage}`)}`
