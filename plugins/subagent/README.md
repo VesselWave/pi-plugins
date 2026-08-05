@@ -36,29 +36,6 @@ pi -e ./plugins/subagent
 | `model`       | no       | Model override for this agent (passed to `pi --model`)                 |
 | `cwd`         | no       | Working directory for the agent process (defaults to the parent's cwd) |
 
-## The tool row
-
-The row does not stream: it paints when the child reports its session id, and again
-when the run ends.
-
-```text
-subagent Investigate the failing test
-  Investigate why the auth integration test fails on CI but passes locally. Look
-  at the test setup, the fixtures it loads and any environment differences
-  between the CI container and a dev machine.
-  ... (4 more lines, ctrl+o to expand)
-
-  cwd      /some/other/path
-  model    anthropic/claude-sonnet-4-5:high
-  session  019fd2ff-cca1-7a91-866c-7eedf6bc222c
-
-  ✓ 4 turns 12 tools ↑12k ↓3.0k $0.0412 1m22s
-  Root cause: the CI image pins an older openssl, so the fixture's certificate...
-```
-
-`cwd` shows only when it differs from the parent's. `ctrl+o` expands the prompt and
-the output.
-
 ## Sessions
 
 Children persist a session named after the call's `description`, so

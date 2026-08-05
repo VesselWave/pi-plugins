@@ -26,9 +26,7 @@ export interface SubagentResult {
   output: string
   toolCalls: number
   usage: SubagentUsage
-  /** Child's pi session id, from the `session` header of its event stream. */
   sessionId?: string | undefined
-  /** Wall-clock duration of the child process. */
   durationMs?: number | undefined
 }
 
@@ -55,7 +53,6 @@ export class SubagentStopError extends Data.TaggedError('SubagentStopError')<{
   /** Error detail reported by the child, if any. */
   readonly errorMessage?: string | undefined
   readonly stderr: string
-  /** Progress made up to the failure. */
   readonly result: SubagentResult
 }> {
   override readonly message: string =
@@ -69,7 +66,6 @@ export class SubagentStopError extends Data.TaggedError('SubagentStopError')<{
 export class SubagentExitError extends Data.TaggedError('SubagentExitError')<{
   readonly exitCode: number
   readonly stderr: string
-  /** Progress made up to the failure. */
   readonly result: SubagentResult
 }> {
   override readonly message: string =
@@ -87,7 +83,6 @@ export class SubagentNoOutputError extends Data.TaggedError(
   'SubagentNoOutputError',
 )<{
   readonly stderr: string
-  /** Progress made up to the failure. */
   readonly result: SubagentResult
 }> {
   override readonly message: string =
@@ -209,20 +204,16 @@ function resolvePiInvocation(args: ReadonlyArray<string>): {
 
 /**
  * Runs one headless pi instance for the given prompt and folds its JSONL
- * event stream into a `SubagentResult`.
+ * event stream into a `SubagentResult`. `onSession` fires once, when the child
+ * reports the id of the session it persists to.
  */
 export function runSubagent(options: {
   prompt: string
   sessionDir: string
-  /** Display name for the child's session. */
   name?: string | undefined
-  /** Optional model override, passed to `pi --model`. */
   model?: string | undefined
-  /** Working directory for the spawned pi process. */
   cwd?: string | undefined
-  /** Tool allowlist for the child. */
   tools?: ReadonlyArray<string> | undefined
-  /** Called once, when the child reports its session id. */
   onSession?: ((sessionId: string) => void) | undefined
 }): Effect.Effect<
   SubagentResult,
