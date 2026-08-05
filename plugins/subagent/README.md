@@ -4,8 +4,8 @@ A minimal subagent tool for [pi-agent](https://github.com/earendil-works/pi):
 delegate a task to a fresh, headless pi instance with an isolated context window.
 
 No agent presets, no orchestration modes — just a `subagent` tool that spawns another
-instance of the running pi harness (`pi --mode json -p --no-session`) and returns its
-final response. Child processes inherit the parent environment with
+instance of the running pi harness (`pi --mode json -p`) and returns its final
+response. Child processes inherit the parent environment with
 `PI_CACHE_RETENTION=short`, so they keep pi's standard provider cache retention
 instead of inheriting a process-wide or OAuth-plugin extended setting.
 
@@ -35,3 +35,11 @@ pi -e ./plugins/subagent
 | `prompt`      | yes      | The task for the agent to perform                                      |
 | `model`       | no       | Model override for this agent (passed to `pi --model`)                 |
 | `cwd`         | no       | Working directory for the agent process (defaults to the parent's cwd) |
+
+## Sessions
+
+Children persist a session named after the call's `description`, so
+`pi --session <id>` opens what a subagent did. They live in
+`~/.pi/agent/sessions/subagents/`, outside any project directory, so they never
+appear in `pi -c` or `pi -r` — pi offers to fork them into the current directory
+instead. Nothing prunes them.

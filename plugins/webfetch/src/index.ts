@@ -1,13 +1,14 @@
 import type { ExtensionAPI, TruncationResult } from '@earendil-works/pi-coding-agent'
 import { truncateHead } from '@earendil-works/pi-coding-agent'
-import { Text } from '@earendil-works/pi-tui'
-import { formatTruncationNotice, renderExpandableText } from '@pi-plugins/shared'
+import { ExpandableText, formatTruncationNotice } from '@pi-plugins/shared'
 import { Duration, Effect, Number } from 'effect'
 import { Type, type Static } from 'typebox'
 import { WebFetch, type WebFetchFormat } from './fetch'
 
 const DEFAULT_TIMEOUT_SECONDS = 30
 const MAX_TIMEOUT_SECONDS = 120
+/** Wrapped terminal rows, not source lines: fetched pages are prose, not code. */
+const PREVIEW_LINES = 5
 
 const webFetchSchema = Type.Object({
   url: Type.String({
@@ -85,17 +86,14 @@ export default function webFetch(pi: ExtensionAPI) {
         `(${format})`,
       )}`
 
-      const text = new Text('', 0, 0)
-      text.setText(
-        renderExpandableText({
-          header,
-          content: details.truncation.content,
-          expanded,
-          theme,
-          truncation: details.truncation,
-        }),
-      )
-      return text
+      return new ExpandableText({
+        header,
+        content: details.truncation.content,
+        maxLines: PREVIEW_LINES,
+        expanded,
+        theme,
+        truncation: details.truncation,
+      })
     },
   })
 }

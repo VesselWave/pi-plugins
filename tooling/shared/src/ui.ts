@@ -1,6 +1,7 @@
 import type {
   AgentToolResult,
   Theme,
+  ThemeColor,
   TruncationResult,
 } from '@earendil-works/pi-coding-agent'
 import {
@@ -9,31 +10,67 @@ import {
   formatSize,
   keyHint,
 } from '@earendil-works/pi-coding-agent'
+import type { Component } from '@earendil-works/pi-tui'
+import { Text, truncateToWidth } from '@earendil-works/pi-tui'
+
+function expandHint(hidden: number, theme: Theme): string {
+  return `${theme.fg('muted', `... (${hidden} more lines,`)} ${keyHint(
+    'app.tools.expand',
+    'to expand',
+  )})`
+}
+
+export interface TextPreviewOptions {
+  text: string
+  maxLines: number
+  expanded: boolean
+  theme: Theme
+  color?: ThemeColor
+}
 
 /**
- * Wraps text into at most `maxLines` preview lines of `width` characters,
- * marking the last line with `...` when the text was cut off.
+ * Previews `text` capped at `maxLines` lines as the terminal wraps them at the
+ * real render width, so a long paragraph does not preview as a wall of text.
  */
-export function previewLines(
-  text: string,
-  maxLines: number,
-  width: number,
-): string[] {
-  const lines: string[] = []
-  outer: for (const line of text.split('\n')) {
-    for (let i = 0; i === 0 || i < line.length; i += width) {
-      lines.push(line.slice(i, i + width))
-      if (lines.length > maxLines) {
-        break outer
-      }
+export class TextPreview implements Component {
+  private readonly body: Text
+  private readonly maxLines: number
+  private readonly expanded: boolean
+  private readonly theme: Theme
+
+  constructor({
+    text,
+    maxLines,
+    expanded,
+    theme,
+    color = 'dim',
+  }: TextPreviewOptions) {
+    // Color per source line: wrapping re-emits the codes on each visual line.
+    const styled = text
+      .split('\n')
+      .map((line) => theme.fg(color, line))
+      .join('\n')
+    this.body = new Text(styled, 0, 0)
+    this.maxLines = maxLines
+    this.expanded = expanded
+    this.theme = theme
+  }
+
+  invalidate(): void {
+    this.body.invalidate()
+  }
+
+  render(width: number): string[] {
+    const lines = this.body.render(width)
+    const hidden = lines.length - this.maxLines
+    if (this.expanded || hidden <= 0) {
+      return lines
     }
+    return [
+      ...lines.slice(0, this.maxLines),
+      truncateToWidth(expandHint(hidden, this.theme), width, '...'),
+    ]
   }
-  if (lines.length <= maxLines) {
-    return lines
-  }
-  const preview = lines.slice(0, maxLines)
-  preview[maxLines - 1] += '...'
-  return preview
 }
 
 /** Joins all text blocks of a tool result into one string, stripping carriage returns. */
@@ -46,59 +83,60 @@ export function getTextOutput(
     .join('\n')
 }
 
-/**
- * Renders a `header` above its `content`. Trailing blank lines are dropped and
- * the body is capped to a 10-line preview unless `expanded`; when the preview
- * hides lines a "... (N more lines, ... to expand)" hint is appended. A
- * `truncation` notice footer is added when provided.
- */
-export function renderExpandableText({
-  header,
-  content,
-  expanded,
-  theme,
-  truncation,
-}: {
+export interface ExpandableTextOptions {
   header: string
   content: string
+  maxLines: number
   expanded: boolean
   theme: Theme
   truncation?: TruncationResult
-}): string {
-  const lines = content.split('\n')
-  while (lines.length > 0 && lines[lines.length - 1] === '') {
-    lines.pop()
-  }
+}
 
-  const maxLines = expanded ? lines.length : 10
-  const displayLines = lines.slice(0, maxLines)
-  const remaining = lines.length - maxLines
+/**
+ * Renders a `header` above its `content`, previewed at `maxLines` unless
+ * `expanded`. Trailing blank lines are dropped and a `truncation` notice footer
+ * is added when provided.
+ */
+export class ExpandableText implements Component {
+  private readonly parts: Component[]
 
-  let text = header
+  constructor({
+    header,
+    content,
+    maxLines,
+    expanded,
+    theme,
+    truncation,
+  }: ExpandableTextOptions) {
+    const body = content.replace(/\n+$/, '')
+    this.parts = [
+      new Text(header, 0, 0),
+      body
+        ? new TextPreview({
+            text: body,
+            maxLines,
+            expanded,
+            theme,
+            color: 'toolOutput',
+          })
+        : new Text(theme.fg('dim', '(empty response)'), 0, 0),
+    ]
 
-  if (displayLines.length > 0) {
-    text += `\n${displayLines
-      .map((line) => theme.fg('toolOutput', line.replace(/\t/g, '   ')))
-      .join('\n')}`
-  } else {
-    text += `\n${theme.fg('dim', '(empty response)')}`
-  }
-
-  if (remaining > 0) {
-    text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint(
-      'app.tools.expand',
-      'to expand',
-    )})`
-  }
-
-  if (truncation) {
-    const notice = formatTruncationNotice(truncation)
+    const notice = truncation ? formatTruncationNotice(truncation) : ''
     if (notice) {
-      text += `\n${theme.fg('warning', notice)}`
+      this.parts.push(new Text(theme.fg('warning', notice), 0, 0))
     }
   }
 
-  return text
+  invalidate(): void {
+    for (const part of this.parts) {
+      part.invalidate()
+    }
+  }
+
+  render(width: number): string[] {
+    return this.parts.flatMap((part) => part.render(width))
+  }
 }
 
 /**
