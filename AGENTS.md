@@ -21,3 +21,20 @@ implementation details.
 Subtrees are tracked in `.agents/repos/.subtrees`, pinned to the release each
 dependency is on, and managed with `scripts/add-subtree.sh` (add a new repo) and
 `scripts/update-subtree.sh` (pull the registered ref).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live in GitHub Issues on `k3dom/pi-plugins`, via the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: a root `CONTEXT-MAP.md` pointing at per-package `CONTEXT.md` files.
+See `docs/agents/domain.md`.
