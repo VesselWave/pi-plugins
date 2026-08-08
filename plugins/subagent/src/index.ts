@@ -34,7 +34,8 @@ const subagentSchema = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        'Optional model override for this agent (defaults to the current model and thinking level)',
+        "Leave unset: the subagent then runs on this session's model and thinking level. " +
+        'Set it only when the user explicitly asked for a different model — never pass your own.',
     }),
   ),
   cwd: Type.Optional(
