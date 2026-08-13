@@ -164,6 +164,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.83.0
         version: 0.83.0(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.83.0
+        version: 0.83.0
       '@pi-plugins/fmt':
         specifier: workspace:*
         version: link:../../tooling/fmt
@@ -203,6 +206,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.83.0
         version: 0.83.0(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.83.0
+        version: 0.83.0
       '@pi-plugins/fmt':
         specifier: workspace:*
         version: link:../../tooling/fmt
@@ -289,6 +295,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.83.0
         version: 0.83.0(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.83.0
+        version: 0.83.0
       '@pi-plugins/fmt':
         specifier: workspace:*
         version: link:../../tooling/fmt
@@ -1395,6 +1404,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@yuku-codegen/binding-android-arm64@0.8.3':
     resolution: {integrity: sha512-/EKnnqwvN7xYoVDhQEIEJTdPDwGW1wkFz/2Eku3ES/IJd4lcQh/OaIDFBmoJKvpe12enrb1TIoYh1fxasGXolA==}
