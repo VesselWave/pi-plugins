@@ -1,5 +1,6 @@
 import { Defuddle } from 'defuddle/node'
 import { Context, Effect, Layer, Schema } from 'effect'
+import { parseHTML } from 'linkedom'
 
 export class HtmlConverterError extends Schema.TaggedErrorClass<HtmlConverterError>()(
   '@pi-plugins/webfetch/HtmlConverterError',
@@ -24,7 +25,13 @@ export class HtmlConverter extends Context.Service<
     toMarkdown: Effect.fn(
       function* (html: string, url: string) {
         const response = yield* Effect.tryPromise({
-          try: () => Defuddle(html, url, { markdown: true }),
+          try: () => {
+            const { document } = parseHTML(html)
+            // defuddle reads the page URL from `location`, which linkedom leaves
+            // unset, and never falls back to the url argument below.
+            Object.assign(document, { location: { href: url } })
+            return Defuddle(document, url, { markdown: true })
+          },
           catch: (cause) =>
             new HtmlConverterError({
               message: 'Failed to convert HTML to Markdown',
