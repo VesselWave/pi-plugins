@@ -48,9 +48,10 @@ export interface RunHandlerOptions<B> {
 }
 
 /**
- * For boundaries pi does not report failures from (event hooks, commands,
- * background work). Never rejects. Without `onError`, failures vanish and
- * defects log to stderr.
+ * For boundaries where pi reports rejections but expected failures should
+ * degrade gracefully (event hooks, commands, background work). Expected
+ * failures and interrupts never reject. Without `onError` they vanish, while
+ * defects rethrow so pi's handler boundary reports the bug.
  */
 export async function runHandler<A, E, B = undefined>(
   effect: Effect.Effect<A, E>,
@@ -63,8 +64,9 @@ export async function runHandler<A, E, B = undefined>(
   if (options?.onError) {
     return options.onError(causeMessage(exit.cause))
   }
-  if (Cause.hasDies(exit.cause)) {
-    console.error(causeMessage(exit.cause))
+  const die = exit.cause.reasons.find(Cause.isDieReason)
+  if (die !== undefined) {
+    throw die.defect
   }
   return undefined as B
 }

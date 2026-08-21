@@ -115,12 +115,16 @@ export default function usage(pi: ExtensionAPI): void {
         : codexWidgetLimits(yield* service.codex(), new Date())
     }).pipe(Effect.provide(UsageService.layer(ctx.modelRegistry)))
 
-    // On failure keep whatever is shown; /usage reports errors explicitly.
-    const limits = await runHandler(program)
-    inFlight.delete(provider)
-    // Record the attempt time even on failure so a broken provider (e.g. not
-    // logged in) is not re-queried on every event.
-    fetchedAt.set(provider, Date.now())
+    // On failure keep whatever is shown. /usage reports errors explicitly.
+    let limits: WidgetLimit[] | undefined
+    try {
+      limits = await runHandler(program)
+    } finally {
+      inFlight.delete(provider)
+      // Record the attempt time even on failure so a broken provider (e.g. not
+      // logged in) is not re-queried on every event.
+      fetchedAt.set(provider, Date.now())
+    }
     if (limits !== undefined) {
       limitsCache.set(provider, limits)
       renderWidget(ctx)
