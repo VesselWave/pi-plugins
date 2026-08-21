@@ -4,6 +4,7 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
 import * as NodeServices from '@effect/platform-node/NodeServices'
+import { runHandler } from '@pi-plugins/shared/run'
 import { Array, Effect, Option, pipe, Schema } from 'effect'
 import { Snapshotter, SnapshotterError } from './snapshot'
 
@@ -74,20 +75,24 @@ export default function checkpoint(pi: ExtensionAPI) {
 
   pi.on('session_start', async (_event, ctx) => {
     // Only active inside git worktrees.
-    snapshotter = await Effect.runPromise(
+    snapshotter = await runHandler(
       Snapshotter.make(ctx.cwd).pipe(
         Effect.provide(NodeServices.layer),
-        Effect.catch((error) =>
-          Effect.sync(() => {
-            const expected =
-              error instanceof SnapshotterError && error.kind === 'NotAWorktree'
-            if (ctx.hasUI && !expected) {
-              ctx.ui.notify(`Checkpoints disabled: ${error.message}`, 'warning')
-            }
-            return undefined
-          }),
+        // Being outside a worktree is the normal way to have no snapshotter.
+        Effect.catchIf(
+          (error) =>
+            error instanceof SnapshotterError && error.kind === 'NotAWorktree',
+          () => Effect.succeed(undefined),
         ),
       ),
+      {
+        onError: (message) => {
+          if (ctx.hasUI) {
+            ctx.ui.notify(`Checkpoints disabled: ${message}`, 'warning')
+          }
+          return undefined
+        },
+      },
     )
   })
 
@@ -102,9 +107,7 @@ export default function checkpoint(pi: ExtensionAPI) {
       return
     }
     // Current worktree state as a tree hash, or undefined when tracking fails.
-    const tree = await Effect.runPromise(
-      snapshotter.track().pipe(Effect.orElseSucceed(() => undefined)),
-    )
+    const tree = await runHandler(snapshotter.track())
     if (!tree) {
       return
     }
@@ -134,21 +137,23 @@ export default function checkpoint(pi: ExtensionAPI) {
         return undefined
       }
 
-      await Effect.runPromise(
+      await runHandler(
         snapshotter.cleanup().pipe(
-          Effect.match({
-            onSuccess: (tree) => {
+          Effect.tap((tree) =>
+            Effect.sync(() => {
               const session = ctx.sessionManager
               if (nearestCheckpoint(session, session.getLeafId()) !== tree) {
                 pi.appendEntry(CHECKPOINT_TYPE, { tree })
               }
               ctx.ui.notify('File checkpoint history cleaned up', 'info')
-            },
-            onFailure: (error) => {
-              ctx.ui.notify(`Checkpoint cleanup failed: ${error.message}`, 'error')
-            },
-          }),
+            }),
+          ),
         ),
+        {
+          onError: (message) => {
+            ctx.ui.notify(`Checkpoint cleanup failed: ${message}`, 'error')
+          },
+        },
       )
     },
   })
@@ -163,9 +168,7 @@ export default function checkpoint(pi: ExtensionAPI) {
       return undefined
     }
 
-    const current = await Effect.runPromise(
-      snapshotter.track().pipe(Effect.orElseSucceed(() => undefined)),
-    )
+    const current = await runHandler(snapshotter.track())
     if (!current || current === target) {
       return undefined
     }
@@ -184,19 +187,19 @@ export default function checkpoint(pi: ExtensionAPI) {
       pi.appendEntry(CHECKPOINT_TYPE, { tree: current })
     }
 
-    return Effect.runPromise(
+    return runHandler(
       snapshotter.restore(target).pipe(
-        Effect.match({
-          onSuccess: () => {
-            ctx.ui.notify('Files restored to the selected point', 'info')
-            return undefined
-          },
-          onFailure: (error) => {
-            ctx.ui.notify(`File restore failed: ${error.message}`, 'error')
-            return { cancel: true }
-          },
+        Effect.map(() => {
+          ctx.ui.notify('Files restored to the selected point', 'info')
+          return undefined
         }),
       ),
+      {
+        onError: (message) => {
+          ctx.ui.notify(`File restore failed: ${message}`, 'error')
+          return { cancel: true }
+        },
+      },
     )
   })
 }

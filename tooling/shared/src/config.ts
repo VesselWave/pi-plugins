@@ -1,25 +1,48 @@
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { getAgentDir } from '@earendil-works/pi-coding-agent'
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import * as NodeServices from '@effect/platform-node/NodeServices'
+import { Effect, FileSystem, Path, PlatformError, Schema } from 'effect'
+import { runHandler } from './run'
 
 /**
- * Loads an extension's JSON config from `<agent-dir>/extensions/<name>.json` and
- * validates it with `schema`.
+ * A missing config file yields `defaults` silently. An unreadable or invalid
+ * one warns and yields `defaults`, so a typo downgrades the extension rather
+ * than breaking it.
  */
-export const loadExtensionConfig = Effect.fnUntraced(function* <
-  S extends Schema.Top,
->(schema: S, name: string) {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-
-  const file = path.join(getAgentDir(), 'extensions', `${name}.json`)
-  return yield* fs.readFileString(file).pipe(
-    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(schema))),
-    Effect.tapError((error) =>
-      error._tag === 'PlatformError' && error.reason._tag === 'NotFound'
-        ? Effect.void
-        : Effect.logWarning(
-            `Could not load ${name} config. [${error._tag}]: ${error.message}`,
-          ),
+export const loadExtensionConfig = Effect.fnUntraced(
+  function* <S extends Schema.Codec<unknown>>(
+    _ctx: ExtensionContext,
+    schema: S,
+    name: string,
+    _defaults: S['Type'],
+  ): Effect.fn.Return<
+    S['Type'],
+    Schema.SchemaError | PlatformError.PlatformError,
+    FileSystem.FileSystem | Path.Path
+  > {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const file = path.join(getAgentDir(), 'extensions', `${name}.json`)
+    const contents = yield* fs.readFileString(file)
+    return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(contents)
+  },
+  (load, ctx, _schema, name, defaults) =>
+    runHandler(
+      load.pipe(
+        Effect.catchIf(
+          (error) =>
+            error._tag === 'PlatformError' && error.reason._tag === 'NotFound',
+          () => Effect.succeed(defaults),
+        ),
+        Effect.provide(NodeServices.layer),
+      ),
+      {
+        onError: (message) => {
+          if (ctx.hasUI) {
+            ctx.ui.notify(`Ignoring invalid ${name} config: ${message}`, 'warning')
+          }
+          return defaults
+        },
+      },
     ),
-  )
-})
+)
