@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import * as NodeServices from '@effect/platform-node/NodeServices'
-import { loadExtensionConfig, setStatuslineSegment } from '@pi-plugins/shared'
+import { loadExtensionConfig } from '@pi-plugins/shared/config'
+import { setStatuslineSegment } from '@pi-plugins/shared/statusline'
 import {
   Array,
   Data,
@@ -140,12 +140,7 @@ export default function fastMode(pi: ExtensionAPI) {
   }
 
   pi.on('session_start', async (_event, ctx) => {
-    config = await Effect.runPromise(
-      loadExtensionConfig(FastModeConfig, EXTENSION_ID).pipe(
-        Effect.orElseSucceed(() => config),
-        Effect.provide(NodeServices.layer),
-      ),
-    )
+    config = await loadExtensionConfig(ctx, FastModeConfig, EXTENSION_ID, config)
     enabled = pi.getFlag('fast') === true || config.enabled
     updateStatus(ctx)
   })

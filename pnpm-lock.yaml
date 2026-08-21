@@ -39,6 +39,9 @@ importers:
       '@pi-plugins/lint':
         specifier: workspace:*
         version: link:../../tooling/lint
+      '@pi-plugins/shared':
+        specifier: workspace:*
+        version: link:../../tooling/shared
       '@pi-plugins/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
@@ -419,6 +422,9 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.83.0
         version: 0.83.0
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@pi-plugins/fmt':
         specifier: workspace:*
         version: link:../fmt

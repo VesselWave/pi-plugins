@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 import { getAgentDir, truncateHead } from '@earendil-works/pi-coding-agent'
-import { formatTruncationNotice } from '@pi-plugins/shared'
+import { formatTruncationNotice } from '@pi-plugins/shared/ui'
 import type { SubagentResult } from './runner'
 
 /**

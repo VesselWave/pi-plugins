@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import * as NodeServices from '@effect/platform-node/NodeServices'
-import { loadExtensionConfig, setStatuslineSegment } from '@pi-plugins/shared'
-import { Cause, Effect, Exit, Schema } from 'effect'
+import { loadExtensionConfig } from '@pi-plugins/shared/config'
+import { runHandler } from '@pi-plugins/shared/run'
+import { setStatuslineSegment } from '@pi-plugins/shared/statusline'
+import { Effect, Schema } from 'effect'
 import {
   claudeSection,
   codexSection,
@@ -114,25 +115,20 @@ export default function usage(pi: ExtensionAPI): void {
         : codexWidgetLimits(yield* service.codex(), new Date())
     }).pipe(Effect.provide(UsageService.layer(ctx.modelRegistry)))
 
-    const exit = await Effect.runPromiseExit(program)
+    // On failure keep whatever is shown; /usage reports errors explicitly.
+    const limits = await runHandler(program)
     inFlight.delete(provider)
     // Record the attempt time even on failure so a broken provider (e.g. not
     // logged in) is not re-queried on every event.
     fetchedAt.set(provider, Date.now())
-    if (Exit.isSuccess(exit)) {
-      limitsCache.set(provider, exit.value)
+    if (limits !== undefined) {
+      limitsCache.set(provider, limits)
       renderWidget(ctx)
     }
-    // On failure keep whatever is shown; /usage reports errors explicitly.
   }
 
   pi.on('session_start', async (_event, ctx) => {
-    config = await Effect.runPromise(
-      loadExtensionConfig(UsageConfig, EXTENSION_ID).pipe(
-        Effect.orElseSucceed(() => config),
-        Effect.provide(NodeServices.layer),
-      ),
-    )
+    config = await loadExtensionConfig(ctx, UsageConfig, EXTENSION_ID, config)
     await refreshWidget(ctx)
   })
 
@@ -200,16 +196,15 @@ export default function usage(pi: ExtensionAPI): void {
           }))
       }).pipe(Effect.provide(UsageService.layer(ctx.modelRegistry)))
 
-      const exit = await Effect.runPromiseExit(program)
-      Exit.match(exit, {
-        onSuccess: (messages) => {
-          for (const { report, severity } of messages) {
-            ctx.ui.notify(report, severity)
-          }
+      const messages = await runHandler(program, {
+        onError: (message) => {
+          ctx.ui.notify(`Failed to fetch usage: ${message}`, 'error')
+          return []
         },
-        onFailure: (cause) =>
-          ctx.ui.notify(`Failed to fetch usage: ${Cause.pretty(cause)}`, 'error'),
       })
+      for (const { report, severity } of messages) {
+        ctx.ui.notify(report, severity)
+      }
       // The command fetched fresh data for both providers — reuse it.
       renderWidget(ctx)
     },

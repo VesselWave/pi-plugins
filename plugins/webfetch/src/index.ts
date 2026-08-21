@@ -1,6 +1,7 @@
 import type { ExtensionAPI, TruncationResult } from '@earendil-works/pi-coding-agent'
 import { truncateHead } from '@earendil-works/pi-coding-agent'
-import { ExpandableText, formatTruncationNotice } from '@pi-plugins/shared'
+import { runTool } from '@pi-plugins/shared/run'
+import { ExpandableText, formatTruncationNotice } from '@pi-plugins/shared/ui'
 import { Duration, Effect, Number } from 'effect'
 import { Type, type Static } from 'typebox'
 import { WebFetch, type WebFetchFormat } from './fetch'
@@ -62,14 +63,7 @@ export default function webFetch(pi: ExtensionAPI) {
         })
       }).pipe(Effect.provide(WebFetch.layer))
 
-      const content = await Effect.runPromise(program, { signal }).catch(
-        (error: unknown) => {
-          throw error instanceof Error && error.message
-            ? error
-            : new Error(String(error))
-        },
-      )
-      const truncation = truncateHead(content)
+      const truncation = truncateHead(await runTool(program, { signal }))
 
       return {
         content: [

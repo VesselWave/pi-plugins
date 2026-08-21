@@ -2,7 +2,8 @@ import * as path from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { Text } from '@earendil-works/pi-tui'
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { ExpandableText, TextPreview } from '@pi-plugins/shared'
+import { runTool } from '@pi-plugins/shared/run'
+import { ExpandableText, TextPreview } from '@pi-plugins/shared/ui'
 import { Effect } from 'effect'
 import { Type, type Static } from 'typebox'
 import {
@@ -162,7 +163,7 @@ export default function subagent(pi: ExtensionAPI) {
         Effect.provide(NodeServices.layer),
       )
 
-      return await Effect.runPromise(program, { signal })
+      return await runTool(program, { signal })
     },
     renderCall(args, theme, { expanded }) {
       const title = new Text(

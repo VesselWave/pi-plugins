@@ -52,6 +52,7 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@pi-plugins/fmt": "workspace:*",
     "@pi-plugins/lint": "workspace:*",
+    "@pi-plugins/shared": "workspace:*",
     "@pi-plugins/tsconfig": "workspace:*",
     "@types/node": "26.1.2",
     "oxfmt": "0.62.0",

@@ -5,7 +5,10 @@
   "description": "Shared utilities for pi-plugins extensions.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
+    "./config": "./src/config.ts",
+    "./run": "./src/run.ts",
+    "./statusline": "./src/statusline.ts",
+    "./ui": "./src/ui.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -18,6 +21,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@earendil-works/pi-tui": "0.83.0",
+    "@effect/platform-node": "4.0.0-beta.103",
     "@pi-plugins/fmt": "workspace:*",
     "@pi-plugins/lint": "workspace:*",
     "@pi-plugins/tsconfig": "workspace:*",
@@ -29,6 +33,7 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
+    "@effect/platform-node": "*",
     "effect": "*"
   }
 }
