@@ -62,7 +62,13 @@ export default function webFetch(pi: ExtensionAPI) {
         })
       }).pipe(Effect.provide(WebFetch.layer))
 
-      const content = await Effect.runPromise(program, { signal })
+      const content = await Effect.runPromise(program, { signal }).catch(
+        (error: unknown) => {
+          throw error instanceof Error && error.message
+            ? error
+            : new Error(String(error))
+        },
+      )
       const truncation = truncateHead(content)
 
       return {
