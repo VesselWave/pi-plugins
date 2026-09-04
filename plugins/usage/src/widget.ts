@@ -46,7 +46,7 @@ export function claudeWidgetLimits(usage: ClaudeUsage): WidgetLimit[] {
         ? [
             {
               label,
-              percent: limit.percent,
+              percent: Math.max(0, Math.min(100, 100 - limit.percent)),
               resetsAt: parseResetsAt(limit.resets_at),
             },
           ]
@@ -63,7 +63,7 @@ export function claudeWidgetLimits(usage: ClaudeUsage): WidgetLimit[] {
       ? [
           {
             label,
-            percent: window.utilization,
+            percent: Math.max(0, Math.min(100, 100 - window.utilization)),
             resetsAt: parseResetsAt(window.resets_at),
           },
         ]
@@ -91,7 +91,7 @@ export function codexWidgetLimits(usage: CodexUsage, now: Date): WidgetLimit[] {
       ? [
           {
             label: codexWindowLabel(window.limit_window_seconds),
-            percent: window.used_percent,
+            percent: Math.max(0, Math.min(100, 100 - window.used_percent)),
             resetsAt: codexResetsAt(window, now),
           },
         ]

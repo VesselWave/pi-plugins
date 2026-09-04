@@ -1,4 +1,8 @@
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  readStoredCredential,
+} from '@earendil-works/pi-coding-agent'
 import { loadExtensionConfig } from '@pi-plugins/shared/config'
 import { runHandler } from '@pi-plugins/shared/run'
 import { setStatuslineSegment } from '@pi-plugins/shared/statusline'
@@ -139,8 +143,10 @@ export default function usage(pi: ExtensionAPI): void {
       const now = new Date()
       const program = Effect.gen(function* () {
         const service = yield* UsageService
-        const sections = yield* Effect.all(
-          [
+        const sectionsToFetch = []
+
+        if (readStoredCredential('anthropic')?.type === 'oauth') {
+          sectionsToFetch.push(
             section(
               'Claude',
               service
@@ -154,29 +160,40 @@ export default function usage(pi: ExtensionAPI): void {
                 ),
               claudeSection,
             ),
-            section(
-              'OpenAI Codex',
-              service
-                .codex()
-                .pipe(
-                  Effect.tap((data) =>
-                    Effect.sync(() =>
-                      recordLimits('codex', codexWidgetLimits(data, now)),
-                    ),
+          )
+        }
+
+        sectionsToFetch.push(
+          section(
+            'OpenAI Codex',
+            service
+              .codex()
+              .pipe(
+                Effect.tap((data) =>
+                  Effect.sync(() =>
+                    recordLimits('codex', codexWidgetLimits(data, now)),
                   ),
                 ),
-              (data) => codexSection(data, now),
-            ),
-          ],
-          { concurrency: 'unbounded' },
+              ),
+            (data) => codexSection(data, now),
+          ),
         )
+
+        const sections = yield* Effect.all(sectionsToFetch, {
+          concurrency: 'unbounded',
+        })
         // The UI shows one message per severity, so sections are grouped by outcome.
         const rendered = renderSections(sections, now)
         const grouped = { info: [] as string[], warning: [] as string[] }
         sections.forEach((usageSection, index) => {
-          grouped['error' in usageSection ? 'warning' : 'info'].push(
-            rendered[index] ?? '',
-          )
+          if ('error' in usageSection) {
+            // Claude warnings disabled
+            if (usageSection.title !== 'Claude') {
+              grouped.warning.push(rendered[index] ?? '')
+            }
+          } else {
+            grouped.info.push(rendered[index] ?? '')
+          }
         })
         return (['info', 'warning'] as const)
           .filter((severity) => grouped[severity].length > 0)

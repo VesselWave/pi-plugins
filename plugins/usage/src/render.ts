@@ -8,6 +8,7 @@ const BAR_WIDTH = 10
 export interface UsageRow {
   readonly label: string
   readonly percent?: number | null | undefined
+  readonly percentSuffix?: string | undefined
   readonly resetsAt?: Date | null | undefined
   readonly note?: string | undefined
 }
@@ -22,9 +23,11 @@ function formatRow(row: UsageRow, now: Date, labelWidth: number): string {
   if (typeof row.percent === 'number') {
     const clamped = Math.min(Math.max(row.percent, 0), 100)
     const filled = Math.round((clamped / 100) * BAR_WIDTH)
+    const suffix = row.percentSuffix ?? ' remaining'
+    const pctStr = `${Math.round(row.percent)}%${suffix}`
     parts.push(
       `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}]`,
-      `${Math.round(row.percent)}%`.padStart(4),
+      suffix ? pctStr.padStart(14) : pctStr.padStart(4),
     )
   }
 
@@ -107,7 +110,10 @@ export function claudeSection(usage: ClaudeUsage): UsageSection {
     for (const limit of limits) {
       rows.push({
         label: unifiedLimitLabel(limit),
-        percent: limit.percent,
+        percent:
+          typeof limit.percent === 'number'
+            ? Math.max(0, Math.min(100, 100 - limit.percent))
+            : limit.percent,
         resetsAt: parseResetsAt(limit.resets_at),
       })
     }
@@ -122,7 +128,7 @@ export function claudeSection(usage: ClaudeUsage): UsageSection {
       if (window && typeof window.utilization === 'number') {
         rows.push({
           label,
-          percent: window.utilization,
+          percent: Math.max(0, Math.min(100, 100 - window.utilization)),
           resetsAt: parseResetsAt(window.resets_at),
         })
       }
@@ -144,6 +150,7 @@ export function claudeSection(usage: ClaudeUsage): UsageSection {
       rows.push({
         label: 'Extra usage',
         percent: extra.utilization,
+        percentSuffix: '',
         note: limit ? `${used} of ${limit}` : used,
       })
     }
@@ -186,9 +193,10 @@ function codexWindowRows(
     if (!window) {
       continue
     }
+    const remaining = Math.max(0, Math.min(100, 100 - window.used_percent))
     rows.push({
       label: labelFor(codexWindowName(window.limit_window_seconds)),
-      percent: window.used_percent,
+      percent: remaining,
       resetsAt: codexResetsAt(window, now),
     })
   }
