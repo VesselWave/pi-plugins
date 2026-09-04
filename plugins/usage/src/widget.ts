@@ -29,7 +29,7 @@ export function widgetText(
       const delta = limit.resetsAt.getTime() - now.getTime()
       return `${text} (${delta > 0 ? formatCompactDuration(delta) : 'now'})`
     })
-    .join(' · ')
+    .join(' ── ')
 }
 
 export function claudeWidgetLimits(usage: ClaudeUsage): WidgetLimit[] {

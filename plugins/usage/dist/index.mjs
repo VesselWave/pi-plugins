@@ -39,7 +39,7 @@ const WIDGET_KEY = "pi-plugins:statusline";
 const REGISTRY_KEY = Symbol.for("@pi-plugins/statusline-registry");
 const HOOKED_KEY = Symbol.for("@pi-plugins/editor-border-hooked");
 function side(segments, align) {
-	return pipe(Array.fromIterable(segments), Array.filter(([, segment]) => segment.align === align), Array.sortBy(Order.mapInput(Order.String, ([key]) => key)), Array.map(([, segment]) => segment.text), Array.join(" · "));
+	return pipe(Array.fromIterable(segments), Array.filter(([, segment]) => segment.align === align), Array.sortBy(Order.mapInput(Order.String, ([key]) => key)), Array.map(([, segment]) => segment.text), Array.join(" ── "));
 }
 function stripAnsi(str) {
 	return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
@@ -147,7 +147,7 @@ function setStatuslineSegment(ctx, key, segment) {
 			const inner = width - margin;
 			const gap = inner - textWidth(left) - textWidth(right);
 			const minGap = String.isNonEmpty(left) && String.isNonEmpty(right) ? 2 : 0;
-			const line = String.isNonEmpty(right) && gap >= minGap ? `${left}${" ".repeat(gap)}${right}` : pipe([left, right], Array.filter(String.isNonEmpty), Array.join(" · "), Array.fromIterable, Array.take(Math.max(inner, 0)), Array.join(""));
+			const line = String.isNonEmpty(right) && gap >= minGap ? `${left}${" ".repeat(gap)}${right}` : pipe([left, right], Array.filter(String.isNonEmpty), Array.join(" ── "), Array.fromIterable, Array.take(Math.max(inner, 0)), Array.join(""));
 			return [" ".repeat(margin) + theme.fg("dim", line)];
 		}
 	}));
@@ -485,7 +485,7 @@ function widgetText(limits, now) {
 		if (!limit.resetsAt) return text;
 		const delta = limit.resetsAt.getTime() - now.getTime();
 		return `${text} (${delta > 0 ? formatCompactDuration(delta) : "now"})`;
-	}).join(" · ");
+	}).join(" ── ");
 }
 function claudeWidgetLimits(usage) {
 	const limits = usage.limits ?? [];

@@ -29,7 +29,7 @@ function side(segments: Registry, align: StatuslineSegment['align']): string {
       ),
     ),
     Array.map(([, segment]) => segment.text),
-    Array.join(' · '),
+    Array.join(' ── '),
   )
 }
 
@@ -244,7 +244,7 @@ export function setStatuslineSegment(
           : pipe(
               [left, right],
               Array.filter(String.isNonEmpty),
-              Array.join(' · '),
+              Array.join(' ── '),
               Array.fromIterable,
               Array.take(Math.max(inner, 0)),
               Array.join(''),
