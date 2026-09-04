@@ -1,8 +1,13 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import {
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ExtensionContext,
+  getAgentDir,
   readStoredCredential,
 } from '@earendil-works/pi-coding-agent'
+import type { AutocompleteItem } from '@earendil-works/pi-tui'
 import { loadExtensionConfig } from '@pi-plugins/shared/config'
 import { runHandler } from '@pi-plugins/shared/run'
 import { setStatuslineSegment } from '@pi-plugins/shared/statusline'
@@ -40,6 +45,17 @@ function widgetProvider(
       return 'codex'
     default:
       return undefined
+  }
+}
+
+function saveExtensionConfig(conf: typeof UsageConfig.Type): void {
+  try {
+    const dir = path.join(getAgentDir(), 'extensions')
+    fs.mkdirSync(dir, { recursive: true })
+    const configFile = path.join(dir, `${EXTENSION_ID}.json`)
+    fs.writeFileSync(configFile, JSON.stringify(conf, null, 2))
+  } catch {
+    // Ignore write failures
   }
 }
 
@@ -136,10 +152,67 @@ export default function usage(pi: ExtensionAPI): void {
     await refreshWidget(ctx)
   })
 
+  async function toggleWidget(
+    ctx: ExtensionContext,
+    targetState?: boolean,
+  ): Promise<void> {
+    const next = targetState !== undefined ? targetState : !config.showWidget
+    config = { ...config, showWidget: next }
+    saveExtensionConfig(config)
+    renderWidget(ctx)
+    if (config.showWidget) {
+      fetchedAt.delete('claude')
+      fetchedAt.delete('codex')
+      await refreshWidget(ctx)
+    }
+    if (ctx.hasUI) {
+      ctx.ui.notify(
+        `Usage widget ${config.showWidget ? 'enabled' : 'disabled'}`,
+        'info',
+      )
+    }
+  }
+
+  const toggleHandler = async (
+    args: string,
+    ctx: ExtensionCommandContext,
+  ): Promise<void> => {
+    const trimmed = args.trim().toLowerCase()
+    if (trimmed === 'on' || trimmed === 'show') {
+      await toggleWidget(ctx, true)
+    } else if (trimmed === 'off' || trimmed === 'hide') {
+      await toggleWidget(ctx, false)
+    } else {
+      await toggleWidget(ctx)
+    }
+  }
+
+  pi.registerCommand('usage-toggle', {
+    description: 'Toggle the usage statusline widget on or off',
+    handler: toggleHandler,
+  })
+
   pi.registerCommand('usage', {
     description:
-      'Show subscription usage/rate limits for Claude and OpenAI Codex plans',
-    handler: async (_args, ctx) => {
+      'Show subscription usage/rate limits for Claude and OpenAI Codex plans (or "/usage toggle")',
+    getArgumentCompletions: (prefix) => {
+      const options: AutocompleteItem[] = [
+        {
+          value: 'toggle',
+          label: 'toggle',
+          description: 'Toggle the statusline widget on or off',
+        },
+        { value: 'show', label: 'show', description: 'Show the statusline widget' },
+        { value: 'hide', label: 'hide', description: 'Hide the statusline widget' },
+      ]
+      return options.filter((o) => o.value.startsWith(prefix.trim().toLowerCase()))
+    },
+    handler: async (args, ctx) => {
+      const trimmed = args.trim().toLowerCase()
+      if (['toggle', 'on', 'off', 'show', 'hide', 'widget'].includes(trimmed)) {
+        await toggleHandler(trimmed === 'widget' ? 'toggle' : trimmed, ctx)
+        return
+      }
       const now = new Date()
       const program = Effect.gen(function* () {
         const service = yield* UsageService

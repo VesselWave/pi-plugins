@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Array, Cause, Context, Data, Effect, Encoding, Exit, FileSystem, Inspectable, Layer, Option, Order, Path, Schedule, Schema, String, pipe } from "effect";
@@ -34,11 +37,90 @@ const loadExtensionConfig = Effect.fnUntraced(function* (_ctx, schema, name, _de
 //#region ../../tooling/shared/src/statusline.ts
 const WIDGET_KEY = "pi-plugins:statusline";
 const REGISTRY_KEY = Symbol.for("@pi-plugins/statusline-registry");
+const HOOKED_KEY = Symbol.for("@pi-plugins/editor-border-hooked");
 function side(segments, align) {
 	return pipe(Array.fromIterable(segments), Array.filter(([, segment]) => segment.align === align), Array.sortBy(Order.mapInput(Order.String, ([key]) => key)), Array.map(([, segment]) => segment.text), Array.join(" · "));
 }
+function stripAnsi(str) {
+	return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
+}
 function textWidth(text) {
-	return Array.fromIterable(text).length;
+	return Array.fromIterable(stripAnsi(text)).length;
+}
+function findCustomEditor() {
+	const req = createRequire(import.meta.url);
+	if (typeof process !== "undefined" && process.argv?.[1]) try {
+		const cliDir = path.dirname(process.argv[1]);
+		const mod = req(path.join(cliDir, "index.js"));
+		if (mod.CustomEditor) return mod.CustomEditor;
+	} catch {}
+	try {
+		const mod = req(req.resolve("@earendil-works/pi-coding-agent"));
+		if (mod.CustomEditor) return mod.CustomEditor;
+	} catch {}
+	try {
+		const mod = req("/home/user/.local/share/pnpm/global/v11/b1fd2-1a06d456c3a/node_modules/@earendil-works/pi-coding-agent/dist/bundle/index.js");
+		if (mod.CustomEditor) return mod.CustomEditor;
+	} catch {}
+}
+function ensureBorderHooked() {
+	const store = globalThis;
+	if (store[HOOKED_KEY]) return true;
+	const CustomEditor = findCustomEditor();
+	if (!CustomEditor?.prototype?.renderTopBorder) return false;
+	const origRenderTopBorder = CustomEditor.prototype.renderTopBorder;
+	CustomEditor.prototype.renderTopBorder = function(width, hiddenLineCount) {
+		const segments = globalThis[REGISTRY_KEY];
+		if (!segments || segments.size === 0 || width <= 0) return origRenderTopBorder.call(this, width, hiddenLineCount);
+		const leftText = side(segments, "left");
+		const rightText = side(segments, "right");
+		if (!leftText && !rightText) return origRenderTopBorder.call(this, width, hiddenLineCount);
+		const color = this.borderColor ?? ((t) => t);
+		const dimColor = this.theme?.fg ? (t) => this.theme.fg("dim", t) : (t) => `\x1B[2m${t}\x1B[0m`;
+		const isWorking = Boolean(this.embedWorkingStatus && this.workingStatusIndicator);
+		let status = "";
+		let statusWidth = 0;
+		if (isWorking && this.workingStatusIndicator) {
+			status = this.workingStatusIndicator.renderInBorder(Math.max(1, width - 5));
+			statusWidth = textWidth(status);
+		}
+		const rightPartWidth = rightText ? textWidth(rightText) + 4 : 0;
+		const rightPart = rightText ? color(" ") + dimColor(rightText) + color(" ──") : "";
+		const overflowLabel = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : void 0;
+		const overflowWidth = overflowLabel ? textWidth(overflowLabel) : 0;
+		if (isWorking && statusWidth > 0) {
+			const leftPart = color("── ") + status + color(" ");
+			const leftPartWidth = 3 + statusWidth + 1;
+			if (rightText && width >= leftPartWidth + rightPartWidth + 2) {
+				const middleSpace = width - leftPartWidth - rightPartWidth;
+				let middle = "";
+				if (overflowLabel && middleSpace >= overflowWidth + 2) {
+					const rem = middleSpace - overflowWidth;
+					const d1 = Math.floor(rem / 2);
+					const d2 = rem - d1;
+					middle = color("─".repeat(d1)) + overflowLabel + color("─".repeat(d2));
+				} else middle = color("─".repeat(middleSpace));
+				return leftPart + middle + rightPart;
+			}
+			return origRenderTopBorder.call(this, width, hiddenLineCount);
+		}
+		const leftPartWidth = leftText ? textWidth(leftText) + 4 : 0;
+		const leftPart = leftText ? color("── ") + dimColor(leftText) + color(" ") : "";
+		if (width >= leftPartWidth + rightPartWidth + 2) {
+			const middleSpace = width - leftPartWidth - rightPartWidth;
+			let middle = "";
+			if (overflowLabel && middleSpace >= overflowWidth + 2) {
+				const rem = middleSpace - overflowWidth;
+				const d1 = Math.floor(rem / 2);
+				const d2 = rem - d1;
+				middle = color("─".repeat(d1)) + overflowLabel + color("─".repeat(d2));
+			} else middle = color("─".repeat(middleSpace));
+			return leftPart + middle + rightPart;
+		}
+		return origRenderTopBorder.call(this, width, hiddenLineCount);
+	};
+	store[HOOKED_KEY] = true;
+	return true;
 }
 function setStatuslineSegment(ctx, key, segment) {
 	const store = globalThis;
@@ -47,6 +129,11 @@ function setStatuslineSegment(ctx, key, segment) {
 	if (segment === void 0) segments.delete(key);
 	else segments.set(key, segment);
 	if (!ctx.hasUI) return;
+	if (ensureBorderHooked()) {
+		ctx.ui.setWidget(WIDGET_KEY, void 0);
+		ctx.ui.setStatus("pi-plugins:statusline-render", void 0);
+		return;
+	}
 	if (segments.size === 0) {
 		ctx.ui.setWidget(WIDGET_KEY, void 0);
 		return;
@@ -442,6 +529,14 @@ function widgetProvider(model) {
 		default: return;
 	}
 }
+function saveExtensionConfig(conf) {
+	try {
+		const dir = path.join(getAgentDir(), "extensions");
+		fs.mkdirSync(dir, { recursive: true });
+		const configFile = path.join(dir, `${EXTENSION_ID}.json`);
+		fs.writeFileSync(configFile, JSON.stringify(conf, null, 2));
+	} catch {}
+}
 function section(title, fetch, toSection) {
 	return fetch.pipe(Effect.map(toSection), Effect.catch((error) => Effect.succeed({
 		title,
@@ -500,9 +595,65 @@ function usage(pi) {
 	pi.on("agent_settled", async (_event, ctx) => {
 		await refreshWidget(ctx);
 	});
+	async function toggleWidget(ctx, targetState) {
+		const next = targetState !== void 0 ? targetState : !config.showWidget;
+		config = {
+			...config,
+			showWidget: next
+		};
+		saveExtensionConfig(config);
+		renderWidget(ctx);
+		if (config.showWidget) {
+			fetchedAt.delete("claude");
+			fetchedAt.delete("codex");
+			await refreshWidget(ctx);
+		}
+		if (ctx.hasUI) ctx.ui.notify(`Usage widget ${config.showWidget ? "enabled" : "disabled"}`, "info");
+	}
+	const toggleHandler = async (args, ctx) => {
+		const trimmed = args.trim().toLowerCase();
+		if (trimmed === "on" || trimmed === "show") await toggleWidget(ctx, true);
+		else if (trimmed === "off" || trimmed === "hide") await toggleWidget(ctx, false);
+		else await toggleWidget(ctx);
+	};
+	pi.registerCommand("usage-toggle", {
+		description: "Toggle the usage statusline widget on or off",
+		handler: toggleHandler
+	});
 	pi.registerCommand("usage", {
-		description: "Show subscription usage/rate limits for Claude and OpenAI Codex plans",
-		handler: async (_args, ctx) => {
+		description: "Show subscription usage/rate limits for Claude and OpenAI Codex plans (or \"/usage toggle\")",
+		getArgumentCompletions: (prefix) => {
+			return [
+				{
+					value: "toggle",
+					label: "toggle",
+					description: "Toggle the statusline widget on or off"
+				},
+				{
+					value: "show",
+					label: "show",
+					description: "Show the statusline widget"
+				},
+				{
+					value: "hide",
+					label: "hide",
+					description: "Hide the statusline widget"
+				}
+			].filter((o) => o.value.startsWith(prefix.trim().toLowerCase()));
+		},
+		handler: async (args, ctx) => {
+			const trimmed = args.trim().toLowerCase();
+			if ([
+				"toggle",
+				"on",
+				"off",
+				"show",
+				"hide",
+				"widget"
+			].includes(trimmed)) {
+				await toggleHandler(trimmed === "widget" ? "toggle" : trimmed, ctx);
+				return;
+			}
 			const now = /* @__PURE__ */ new Date();
 			const messages = await runHandler(Effect.gen(function* () {
 				const service = yield* UsageService;
