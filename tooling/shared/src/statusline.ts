@@ -42,6 +42,15 @@ function textWidth(text: string): number {
   return Array.fromIterable(stripAnsi(text)).length
 }
 
+function formatSideWithBorders(
+  text: string,
+  dimColor: (t: string) => string,
+  borderColor: (t: string) => string,
+): string {
+  const parts = text.split(' ── ')
+  return parts.map((p) => dimColor(p)).join(borderColor(' ── '))
+}
+
 interface CustomEditorLike {
   prototype: {
     renderTopBorder(width: number, hiddenLineCount: number): string
@@ -143,7 +152,7 @@ function ensureBorderHooked(): boolean {
 
     const rightPartWidth = rightText ? textWidth(rightText) + 4 : 0
     const rightPart = rightText
-      ? color(' ') + dimColor(rightText) + color(' ──')
+      ? color(' ') + formatSideWithBorders(rightText, dimColor, color) + color(' ──')
       : ''
 
     const overflowLabel =
@@ -172,7 +181,9 @@ function ensureBorderHooked(): boolean {
 
     // Idle mode
     const leftPartWidth = leftText ? textWidth(leftText) + 4 : 0
-    const leftPart = leftText ? color('── ') + dimColor(leftText) + color(' ') : ''
+    const leftPart = leftText
+      ? color('── ') + formatSideWithBorders(leftText, dimColor, color) + color(' ')
+      : ''
 
     if (width >= leftPartWidth + rightPartWidth + 2) {
       const middleSpace = width - leftPartWidth - rightPartWidth

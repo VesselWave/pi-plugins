@@ -47,6 +47,9 @@ function stripAnsi(str) {
 function textWidth(text) {
 	return Array.fromIterable(stripAnsi(text)).length;
 }
+function formatSideWithBorders(text, dimColor, borderColor) {
+	return text.split(" ── ").map((p) => dimColor(p)).join(borderColor(" ── "));
+}
 function findCustomEditor() {
 	const req = createRequire(import.meta.url);
 	if (typeof process !== "undefined" && process.argv?.[1]) try {
@@ -85,7 +88,7 @@ function ensureBorderHooked() {
 			statusWidth = textWidth(status);
 		}
 		const rightPartWidth = rightText ? textWidth(rightText) + 4 : 0;
-		const rightPart = rightText ? color(" ") + dimColor(rightText) + color(" ──") : "";
+		const rightPart = rightText ? color(" ") + formatSideWithBorders(rightText, dimColor, color) + color(" ──") : "";
 		const overflowLabel = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : void 0;
 		const overflowWidth = overflowLabel ? textWidth(overflowLabel) : 0;
 		if (isWorking && statusWidth > 0) {
@@ -105,7 +108,7 @@ function ensureBorderHooked() {
 			return origRenderTopBorder.call(this, width, hiddenLineCount);
 		}
 		const leftPartWidth = leftText ? textWidth(leftText) + 4 : 0;
-		const leftPart = leftText ? color("── ") + dimColor(leftText) + color(" ") : "";
+		const leftPart = leftText ? color("── ") + formatSideWithBorders(leftText, dimColor, color) + color(" ") : "";
 		if (width >= leftPartWidth + rightPartWidth + 2) {
 			const middleSpace = width - leftPartWidth - rightPartWidth;
 			let middle = "";
