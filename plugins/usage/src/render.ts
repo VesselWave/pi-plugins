@@ -7,29 +7,25 @@ const BAR_WIDTH = 10
 
 export interface UsageRow {
   readonly label: string
-  /** Percentage used, 0-100. */
   readonly percent?: number | null | undefined
   readonly resetsAt?: Date | null | undefined
-  /** Free-form suffix (used instead of / in addition to the bar). */
   readonly note?: string | undefined
 }
 
-/** One provider block of the report: usage rows, or an inline failure. */
 export type UsageSection =
   | { readonly title: string; readonly rows: readonly UsageRow[] }
   | { readonly title: string; readonly error: string }
-
-function bar(percent: number): string {
-  const clamped = Math.min(Math.max(percent, 0), 100)
-  const filled = Math.round((clamped / 100) * BAR_WIDTH)
-  return `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}]`
-}
 
 function formatRow(row: UsageRow, now: Date, labelWidth: number): string {
   const parts = [`  ${row.label.padEnd(labelWidth)}`]
 
   if (typeof row.percent === 'number') {
-    parts.push(bar(row.percent), `${Math.round(row.percent)}%`.padStart(4))
+    const clamped = Math.min(Math.max(row.percent, 0), 100)
+    const filled = Math.round((clamped / 100) * BAR_WIDTH)
+    parts.push(
+      `[${'█'.repeat(filled)}${'░'.repeat(BAR_WIDTH - filled)}]`,
+      `${Math.round(row.percent)}%`.padStart(4),
+    )
   }
 
   if (row.resetsAt) {
@@ -38,35 +34,12 @@ function formatRow(row: UsageRow, now: Date, labelWidth: number): string {
   }
 
   if (row.note) {
-    // Separate the note from a preceding bar/percent or reset, but keep
-    // note-only rows (e.g. "disabled — …") unprefixed.
     parts.push(parts.length > 1 ? `· ${row.note}` : row.note)
   }
 
   return parts.join(' ')
 }
 
-function renderSection(
-  section: UsageSection,
-  now: Date,
-  labelWidth: number,
-): string[] {
-  if ('error' in section) {
-    return [section.title, `  ${section.error}`]
-  }
-  if (section.rows.length === 0) {
-    return [section.title, '  (no usage data reported)']
-  }
-  return [
-    section.title,
-    ...section.rows.map((row) => formatRow(row, now, labelWidth)),
-  ]
-}
-
-/**
- * Renders each section to its own string, using a shared label width so bars
- * and percentages line up across providers, not just within one section.
- */
 export function renderSections(
   sections: readonly UsageSection[],
   now: Date,
@@ -77,25 +50,36 @@ export function renderSections(
       'rows' in section ? section.rows.map((row) => row.label.length) : [],
     ),
   )
-  return sections.map((section) =>
-    renderSection(section, now, labelWidth).join('\n'),
-  )
+  return sections.map((section) => {
+    if ('error' in section) {
+      return `${section.title}\n  ${section.error}`
+    }
+    if (section.rows.length === 0) {
+      return `${section.title}\n  (no usage data reported)`
+    }
+    return [
+      section.title,
+      ...section.rows.map((row) => formatRow(row, now, labelWidth)),
+    ].join('\n')
+  })
 }
 
-// ─── Claude ──────────────────────────────────────────────────────────────────
-
-function windowRow(
-  label: string,
-  window: UsageWindow | null | undefined,
-): UsageRow | null {
-  if (!window || typeof window.utilization !== 'number') {
-    return null
+function formatMinorAmount(
+  amount: number,
+  decimalPlaces: number,
+  currency: string | null | undefined,
+): string {
+  const value = amount / 10 ** decimalPlaces
+  if (currency) {
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+        value,
+      )
+    } catch {
+      // Unknown currency code.
+    }
   }
-  return {
-    label,
-    percent: window.utilization,
-    resetsAt: parseResetsAt(window.resets_at),
-  }
+  return value.toFixed(decimalPlaces)
 }
 
 function unifiedLimitLabel(limit: UnifiedLimit): string {
@@ -113,40 +97,13 @@ function unifiedLimitLabel(limit: UnifiedLimit): string {
   }
 }
 
-/** "out_of_credit" -> "Out Of Credit" */
-function formatIdentifier(value: string): string {
-  return value
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
-function formatMinorAmount(
-  amount: number,
-  decimalPlaces: number,
-  currency: string | null | undefined,
-): string {
-  const value = amount / 10 ** decimalPlaces
-  if (currency) {
-    try {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
-        value,
-      )
-    } catch {
-      // Unknown currency code — fall through to the plain rendering.
-    }
-  }
-  return value.toFixed(decimalPlaces)
-}
-
 export function claudeSection(usage: ClaudeUsage): UsageSection {
   const rows: UsageRow[] = []
 
   const limits = usage.limits ?? []
   if (limits.length > 0) {
-    // The unified `limits` array supersedes the flat windows when present.
-    // Note: `is_active` marks the currently binding limit, not visibility.
+    // `is_active` marks the currently binding limit, not visibility, so every
+    // limit is listed.
     for (const limit of limits) {
       rows.push({
         label: unifiedLimitLabel(limit),
@@ -162,9 +119,12 @@ export function claudeSection(usage: ClaudeUsage): UsageSection {
       ['Week (Sonnet)', usage.seven_day_sonnet],
     ]
     for (const [label, window] of flatWindows) {
-      const row = windowRow(label, window)
-      if (row) {
-        rows.push(row)
+      if (window && typeof window.utilization === 'number') {
+        rows.push({
+          label,
+          percent: window.utilization,
+          resetsAt: parseResetsAt(window.resets_at),
+        })
       }
     }
   }
@@ -188,19 +148,20 @@ export function claudeSection(usage: ClaudeUsage): UsageSection {
       })
     }
     if (extra.is_enabled === false) {
+      const reason = extra.disabled_reason
+        ?.split('_')
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
       rows.push({
         label: 'Extra usage',
-        note: extra.disabled_reason
-          ? `disabled — ${formatIdentifier(extra.disabled_reason)}`
-          : 'disabled',
+        note: reason ? `disabled — ${reason}` : 'disabled',
       })
     }
   }
 
   return { title: 'Claude', rows }
 }
-
-// ─── OpenAI Codex ────────────────────────────────────────────────────────────
 
 function codexWindowName(seconds: number | null | undefined): string {
   if (typeof seconds !== 'number' || seconds <= 0) {
