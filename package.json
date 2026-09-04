@@ -18,5 +18,10 @@
     "oxfmt": "0.62.0",
     "turbo": "2.10.8"
   },
-  "packageManager": "pnpm@11.20.0"
+  "packageManager": "pnpm@11.20.0",
+  "pi": {
+    "extensions": [
+      "./plugins/usage/dist/index.mjs"
+    ]
+  }
 }
